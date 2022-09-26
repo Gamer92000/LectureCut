@@ -104,7 +104,7 @@ def vad_collector(sample_rate, frame_duration_ms,
         yield (voiced_frames[0].timestamp, voiced_frames[-1].timestamp + voiced_frames[-1].duration)
 
 
-def run(file, aggressiveness):
+def run(file, aggressiveness, invert=False):
   audio, sample_rate = read_audio(file)
   vad = webrtcvad.Vad(aggressiveness)
   frames = frame_generator(30, audio, sample_rate)
@@ -122,18 +122,20 @@ def run(file, aggressiveness):
     i += 1
 
   segments = newSegments
+  cuts = segments
 
-  video = cv2.VideoCapture(file)
-  fps = video.get(cv2.CAP_PROP_FPS)
-  frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
-  duration = frame_count / fps
+  if invert:
+    video = cv2.VideoCapture(file)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
+    duration = frame_count / fps
 
-  silence = []
-  if segments[0][0] > 0:
-    silence.append((0, segments[0][0]))
-  for j in range(len(segments) - 1):
-    silence.append((segments[j][1], segments[j + 1][0]))
-  if segments[-1][1] < duration:
-    silence.append((segments[-1][1], duration))
+    cuts = []
+    if segments[0][0] > 0:
+      cuts.append((0, segments[0][0]))
+    for j in range(len(segments) - 1):
+      cuts.append((segments[j][1], segments[j + 1][0]))
+    if segments[-1][1] < duration:
+      cuts.append((segments[-1][1], duration))
   
-  return silence
+  return cuts

@@ -69,8 +69,7 @@ def cleanup(instance):
 def generateCutList(instance):
   global instances
   file = instances[instance]["file"]
-  aggressiveness = instances[instance]["aggressiveness"]
-  instances[instance]["cuts"] = vad.run(file, aggressiveness)
+  instances[instance]["cuts"] = vad.run(file, aggressiveness, invert)
 
 def prepareVideo(manager, instance):
   _splitVideo(manager, instance)
@@ -127,7 +126,6 @@ def transcode(manger, instance):
   cachePath = cachePrefix + f"/{instance}/"
   segments = instances[instance]["segments"]
   cuts = instances[instance]["cuts"]
-  quality = instances[instance]["quality"]
 
   pbar = manger.counter(total=len(segments), desc='Transcoding', unit='segments')
 
@@ -135,37 +133,30 @@ def transcode(manger, instance):
   currentCut = 0
 
   for i in segments:
-    # move all segments before the current cut or after the last cut to the cutSegments folder
+    # cats are segments that need to be kept
     segment = segments[i]
-    if currentCut >= len(cuts) or segment['end'] <= cuts[currentCut][0]:
+    # if completely enclosed by a cut, copy
+    if currentCut < len(cuts) and cuts[currentCut][0] <= segment["start"] and cuts[currentCut][1] >= segment["end"]:
       os.rename(f"{cachePath}segments/out{i:03d}.ts", f"{cachePath}cutSegments/out{i:03d}.ts")
       pbar.update()
       continue
-    # if completely enclosed by a cut, skip
-    if segment['start'] >= cuts[currentCut][0] and segment['end'] <= cuts[currentCut][1]:
-      if segment['end'] == cuts[currentCut][1]:
-        currentCut += 1
+    # skip segment if it ends before the current cut starts
+    # or if it starts after the current cut ends
+    if currentCut < len(cuts) and (segment["end"] <= cuts[currentCut][0] or segment["start"] >= cuts[currentCut][1]):
       pbar.update()
       continue
+
     # list of all things to be removed from the segment
-    trimlist = []
+    keep = []
     while currentCut < len(cuts) and (segment['end'] > cuts[currentCut][1]):
       start = max(segment['start'], cuts[currentCut][0])
       end = min(segment['end'], cuts[currentCut][1])
-      trimlist.append((start, end))
+      keep.append((start, end))
       currentCut += 1
     if currentCut < len(cuts) and segment['end'] > cuts[currentCut][0]:
       start = max(segment['start'], cuts[currentCut][0])
       end = min(segment['end'], cuts[currentCut][1])
-      trimlist.append((start, end))
-    # invert the trimlist to get the list of things to keep
-    keep = []
-    if trimlist[0][0] > segment['start']:
-      keep.append((segment['start'], trimlist[0][0]))
-    for j in range(len(trimlist) - 1):
-      keep.append((trimlist[j][1], trimlist[j + 1][0]))
-    if trimlist[-1][1] < segment['end']:
-      keep.append((trimlist[-1][1], segment['end']))
+      keep.append((start, end))
 
     # filter keep list to remove segments that are too short
     keep = [x for x in keep if x[1] - x[0] > 0.1]
@@ -173,20 +164,22 @@ def transcode(manger, instance):
     # convert keep list from global time to segment time
     keep = [(x[0] - segment['start'], x[1] - segment['start']) for x in keep]
     
-    Parallel(n_jobs=2)(delayed(_transcodeSegment)(i, j, x, instance) for j,x in enumerate(keep))
+    Parallel(n_jobs=2, require="sharedmem")(delayed(_transcodeSegment)(i, j, x, instance) for j,x in enumerate(keep))
     pbar.update()
 
 def _transcodeSegment(i, j, trim, instance):
   cachePath = f'{cachePrefix}{instance}/'
-  quality = instances[instance]["quality"]
-  stream = ffmpeg.input(f'{cachePath}segments/out{i:03d}.ts')
-  stream = stream.output(f'{cachePath}cutSegments/out{i:03d}_{j:02d}.ts', f='mpegts', ss=trim[0], to=trim[1], acodec="copy", vcodec="libx264", preset="fast", crf=quality, reset_timestamps=1, force_key_frames=0).global_args('-loglevel', 'quiet').global_args('-hide_banner')
-  stream.run()
+  (
+    ffmpeg.input(f'{cachePath}segments/out{i:03d}.ts')
+    .output(f'{cachePath}cutSegments/out{i:03d}_{j:02d}.ts', f='mpegts', ss=trim[0], to=trim[1], acodec="copy", vcodec="libx264", preset="fast", crf=quality, reset_timestamps=1, force_key_frames=0)
+    .global_args('-loglevel', 'error')
+    .global_args('-hide_banner')
+    .run()
+  )
 
 def concatSegments(manager, instance):
   cachePath = f'{cachePrefix}{instance}/'
   output = instances[instance]["output"]
-  reencode = instances[instance]["reencode"]
   with open(f'{cachePath}list.txt', 'w') as f:
     for file in os.listdir(f'{cachePath}cutSegments'):
       f.write(f"file 'cutSegments/{file}'\n")
@@ -201,7 +194,7 @@ def concatSegments(manager, instance):
     outputargs = {
       'vcodec': 'libx264',
       'preset': 'fast',
-      'crf': instances[instance]["quality"],
+      'crf': quality,
       'acodec': 'aac',
     }
   else:
@@ -227,9 +220,6 @@ def run(manager, config):
   instances[instance] = {
     "file": None,
     "output": None,
-    "quality": 20,
-    "aggressiveness": 3,
-    "reencode": False,
   }
   for key in config:
     instances[instance][key] = config[key]
@@ -246,14 +236,20 @@ def run(manager, config):
   Parallel(n_jobs=2, require='sharedmem')([delayed(generateCutList)(instance), delayed(prepareVideo)(manager, instance)])
   status.update(stage=f"[2/4] Transcoding video")
   transcode(manager, instance)
-  status.update(stage=f"[3/4] Rendering & Reencoding" if instances[instance]["reencode"] else "[3/4] Rendering video")
+  status.update(stage=f"[3/4] Rendering & Reencoding" if reencode else "[3/4] Rendering video")
   concatSegments(manager, instance)
   cleanup(instance)
   status.update(stage=f"[4/4] Done 🎉", force=True)
 
 cachePrefix = "./" # needs to end with a slash
 
+invert = False
+quality = 20
+aggressiveness = 3
+reencode = False
+
 def main():
+  global invert, quality, aggressiveness, reencode
   parser = argparse.ArgumentParser(description=textwrap.dedent('''
     LectureCut is a tool to remove silence from videos.
 
@@ -269,13 +265,30 @@ def main():
   parser.add_argument('-q', '--quality', help='The quality of the output video. Lower is better. Default: 20', required=False, type=int, default=20)
   parser.add_argument('-a', '--aggressiveness', help='The aggressiveness of the VAD. Higher is more aggressive. Default: 3', required=False, type=int, default=3)
   parser.add_argument('-r', '--reencode', help='Reencode the video with a given video codec.', required=False, type=str)
+  parser.add_argument('--invert', help='Invert the selection. This will cut out all segments that are not silence.', required=False, action='store_true')
 
   args = parser.parse_args()
+
+  if args.invert:
+    invert = True
+  if args.quality:
+    quality = args.quality
+  if args.aggressiveness:
+    aggressiveness = args.aggressiveness
+  if args.reencode:
+    reencode = args.reencode
+
+  if args.invert and not args.aggressiveness:
+    aggressiveness = 1
 
   manager = enlighten.get_manager()
   name = manager.term.link('https://github.com/Gamer92000/LectureCut', 'LectureCut')
   author = manager.term.link('https://github.com/Gamer92000', 'Gamer92000')
   manager.status_bar(f' {name} - Made with ❤️ by {author}! ', position=1, fill='-', justify=enlighten.Justify.CENTER)
+
+  automaticNameInsert = "_jumpcut."
+  if invert:
+    automaticNameInsert = "_jumpcut_inverted."
 
   # if input file is a directory, process all files in it
   if os.path.isdir(args.input):
@@ -289,25 +302,19 @@ def main():
         os.mkdir(args.output)
       getFilePath = lambda x: os.path.join(args.output, os.path.basename(x))
     else:
-      getFilePath = lambda x: os.path.splitext(os.path.basename(x))[0] + "_jumpcut" + os.path.splitext(os.path.basename(x))[1]
+      getFilePath = lambda x: os.path.splitext(os.path.basename(x))[0] + automaticNameInsert + args.input.rsplit(x, 1)[1]
     for file in files:
       run(manager, {
         "file": file,
-        "output": getFilePath(file),
-        "quality": args.quality,
-        "aggressiveness": args.aggressiveness,
-        "reencode": args.reencode,
+        "output": getFilePath(file)
       })
       pbar.update()
 
-  fallbackOutput = args.input.rsplit(".", 1)[0] + "_jumpcut." + args.input.rsplit(".", 1)[1]
+  fallbackOutput = args.input.rsplit(".", 1)[0] + automaticNameInsert + args.input.rsplit(".", 1)[1]
 
   run(manager, {
     "file": args.input,
-    "aggressiveness": args.aggressiveness,
-    "quality": args.quality,
-    "output": args.output if args.output else fallbackOutput,
-    "reencode": args.reencode,
+    "output": args.output if args.output else fallbackOutput
   })
   
   manager.stop()
