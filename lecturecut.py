@@ -101,7 +101,7 @@ def _analyseSegments(manager, instance):
   instances[instance]["segments"] = {}
   cachePath = cachePrefix + f"/{instance}/"
   
-  segments = os.listdir(cachePath + "segments")
+  segments = sorted(os.listdir(cachePath + "segments"))
   pbar = manager.counter(total=len(segments), desc='Analysing  ', unit='segments')
 
   durations = Parallel(n_jobs=2)(delayed(_getVideoLength)(pbar, f'{cachePath}segments/{path}') for path in segments)
@@ -186,7 +186,7 @@ def concatSegments(manager, instance):
   cachePath = f'{cachePrefix}{instance}/'
   output = instances[instance]["output"]
   with open(f'{cachePath}list.txt', 'w') as f:
-    for file in os.listdir(f'{cachePath}cutSegments'):
+    for file in sorted(os.listdir(f'{cachePath}cutSegments')):
       f.write(f"file 'cutSegments/{file}'\n")
   totalCutLength = sum([x[1] - x[0] for x in instances[instance]["cuts"]])
   barTotal = int(totalCutLength * 1000)
@@ -296,7 +296,7 @@ def main():
 
   # if input file is a directory, process all files in it
   if os.path.isdir(args.input):
-    files = os.listdir(args.input)
+    files = sorted(os.listdir(args.input))
     files = [f for f in files if os.path.isfile(os.path.join(args.input, f))]
     files = [os.path.join(args.input, f) for f in files]
     pbar = manager.counter(total=len(files), desc='Processing ')
