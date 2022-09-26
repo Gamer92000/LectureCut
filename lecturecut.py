@@ -90,7 +90,7 @@ def _splitVideo(manager, instance):
     .global_args('-progress', 'pipe:1')
     .global_args('-loglevel', 'error')
     .global_args('-hide_banner')
-    .overwrite_output()
+    .global_args('-nostdin')
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
   readProgress(pbar, split)
@@ -173,10 +173,12 @@ def transcode(manger, instance):
 def _transcodeSegment(i, j, trim, instance):
   cachePath = f'{cachePrefix}{instance}/'
   (
-    ffmpeg.input(f'{cachePath}segments/out{i:03d}.ts')
+    ffmpeg
+    .input(f'{cachePath}segments/out{i:03d}.ts')
     .output(f'{cachePath}cutSegments/out{i:03d}_{j:02d}.ts', f='mpegts', ss=trim[0], to=trim[1], acodec="copy", vcodec="libx264", preset="fast", crf=quality, reset_timestamps=1, force_key_frames=0)
     .global_args('-loglevel', 'error')
     .global_args('-hide_banner')
+    .global_args('-nostdin')
     .run()
   )
 
@@ -208,7 +210,7 @@ def concatSegments(manager, instance):
     .global_args('-progress', 'pipe:1')
     .global_args('-loglevel', 'error')
     .global_args('-hide_banner')
-    .overwrite_output()
+    .global_args('-nostdin')
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
   readProgress(pbar, concat)

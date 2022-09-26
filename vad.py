@@ -8,9 +8,15 @@ def read_audio(path):
     """Reads a .wav file.
     Takes the path, and returns (PCM audio data, sample rate).
     """
-    stream = ffmpeg.input(path)
-    stream = ffmpeg.output(stream, 'pipe:', format='s16le', acodec='pcm_s16le', ac=1, ar='16k').global_args('-loglevel', 'quiet').global_args('-hide_banner')
-    out, _ = ffmpeg.run(stream, capture_stdout=True)
+    out, _ = (
+      ffmpeg
+      .input(path)
+      .output('pipe:', format='s16le', acodec='pcm_s16le', ac=1, ar='16k')
+      .global_args('-loglevel', 'quiet')
+      .global_args('-hide_banner')
+      .global_args('-nostdin')
+      .run(capture_stdout=True)
+    )
     return out, 16000
 
 
