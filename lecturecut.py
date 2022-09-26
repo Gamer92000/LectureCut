@@ -94,6 +94,7 @@ def _splitVideo(manager, instance):
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
   readProgress(pbar, split)
+  pbar.close()
 
 def _analyseSegments(manager, instance):
   global instances
@@ -112,6 +113,7 @@ def _analyseSegments(manager, instance):
       "end": total_duration + duration,
     }
     total_duration += duration
+  pbar.close()
 
 def _getVideoLength(pbar, videoPath):
   video = cv2.VideoCapture(videoPath)
@@ -166,6 +168,7 @@ def transcode(manger, instance):
     
     Parallel(n_jobs=2, require="sharedmem")(delayed(_transcodeSegment)(i, j, x, instance) for j,x in enumerate(keep))
     pbar.update()
+  pbar.close()
 
 def _transcodeSegment(i, j, trim, instance):
   cachePath = f'{cachePrefix}{instance}/'
@@ -183,11 +186,8 @@ def concatSegments(manager, instance):
   with open(f'{cachePath}list.txt', 'w') as f:
     for file in os.listdir(f'{cachePath}cutSegments'):
       f.write(f"file 'cutSegments/{file}'\n")
-  lastSegment = len(instances[instance]["segments"])-1
-  totalSegmentLength = instances[instance]["segments"][lastSegment]["end"]
   totalCutLength = sum([x[1] - x[0] for x in instances[instance]["cuts"]])
-  totalOutputLength = totalSegmentLength - totalCutLength
-  barTotal = int(totalOutputLength * 1000)
+  barTotal = int(totalCutLength * 1000)
   pbar = manager.counter(total=barTotal, desc='Rendering  ')
   outputargs = {}
   if reencode:
@@ -212,6 +212,7 @@ def concatSegments(manager, instance):
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
   readProgress(pbar, concat)
+  pbar.close()
 
 def run(manager, config):
   global instances
@@ -240,6 +241,7 @@ def run(manager, config):
   concatSegments(manager, instance)
   cleanup(instance)
   status.update(stage=f"[4/4] Done 🎉", force=True)
+  status.close()
 
 cachePrefix = "./" # needs to end with a slash
 
