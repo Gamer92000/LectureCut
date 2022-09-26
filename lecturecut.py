@@ -86,7 +86,7 @@ def _splitVideo(manager, instance):
   split = (
     ffmpeg
     .input(file)
-    .output(cachePath + 'segments/out%03d.ts', f='segment', c='copy', reset_timestamps=1)
+    .output(cachePath + 'segments/out%05d.ts', f='segment', c='copy', reset_timestamps=1)
     .global_args('-progress', 'pipe:1')
     .global_args('-loglevel', 'error')
     .global_args('-hide_banner')
@@ -139,7 +139,7 @@ def transcode(manger, instance):
     segment = segments[i]
     # if completely enclosed by a cut, copy
     if currentCut < len(cuts) and cuts[currentCut][0] <= segment["start"] and cuts[currentCut][1] >= segment["end"]:
-      os.rename(f"{cachePath}segments/out{i:03d}.ts", f"{cachePath}cutSegments/out{i:03d}.ts")
+      os.rename(f"{cachePath}segments/out{i:05d}.ts", f"{cachePath}cutSegments/out{i:05d}.ts")
       pbar.update()
       continue
     # skip segment if it ends before the current cut starts
@@ -174,8 +174,8 @@ def _transcodeSegment(i, j, trim, instance):
   cachePath = f'{cachePrefix}{instance}/'
   (
     ffmpeg
-    .input(f'{cachePath}segments/out{i:03d}.ts')
-    .output(f'{cachePath}cutSegments/out{i:03d}_{j:02d}.ts', f='mpegts', ss=trim[0], to=trim[1], acodec="copy", vcodec="libx264", preset="fast", crf=quality, reset_timestamps=1, force_key_frames=0)
+    .input(f'{cachePath}segments/out{i:05d}.ts')
+    .output(f'{cachePath}cutSegments/out{i:05d}_{j:03d}.ts', f='mpegts', ss=trim[0], to=trim[1], acodec="copy", vcodec="libx264", preset="fast", crf=quality, reset_timestamps=1, force_key_frames=0)
     .global_args('-loglevel', 'error')
     .global_args('-hide_banner')
     .global_args('-nostdin')
