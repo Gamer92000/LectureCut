@@ -14,6 +14,7 @@ from threading import Thread
 import sys
 import argparse
 import textwrap
+import atexit
 
 instances = {}
 
@@ -25,14 +26,24 @@ def reader(pipe, queue):
   finally:
     queue.put(None)
 
-def deleteDirectoryRecursively(path):
+def deleteDirectoryRecursively(path, retryCounter=10):
   if os.path.exists(path):
-    for filename in os.listdir(path):
-      if os.path.isdir(path + filename):
-        deleteDirectoryRecursively(path + filename + '/')
-      else:
-        os.remove(path + filename)
-    os.rmdir(path)
+    for _ in range(retryCounter):
+      try:
+        for filename in os.listdir(path):
+          if os.path.isdir(path + filename):
+            deleteDirectoryRecursively(path + filename + '/')
+          else:
+            for _ in range(retryCounter):
+              try:
+                os.remove(path + filename)
+                break
+              except:
+                time.sleep(0.1)
+        os.rmdir(path)
+        break
+      except:
+        time.sleep(0.1)
 
 def readProgress(pbar, ffmpeg_run):
   q = Queue()
@@ -223,6 +234,7 @@ def run(manager, config):
   instances[instance] = {
     "file": None,
     "output": None,
+    "manager": manager,
   }
   for key in config:
     instances[instance][key] = config[key]
@@ -290,9 +302,9 @@ def main():
   author = manager.term.link('https://github.com/Gamer92000', 'Gamer92000')
   manager.status_bar(f' {name} - Made with ❤️ by {author}! ', position=1, fill='-', justify=enlighten.Justify.CENTER)
 
-  automaticNameInsert = "_jumpcut."
+  automaticNameInsert = "_lecturecut."
   if invert:
-    automaticNameInsert = "_jumpcut_inverted."
+    automaticNameInsert = "_inverted_lecturecut."
 
   # if input file is a directory, process all files in it
   if os.path.isdir(args.input):
@@ -324,5 +336,18 @@ def main():
   manager.stop()
   print()
 
+def shotdownCleanup():
+  print()
+  print("Cleaning up after unexpected exit...")
+  # sleep to make sure open file handles are closed
+  time.sleep(3)
+  for instance in instances:
+    instances[instance]["manager"].stop()
+    cachePath = f'{cachePrefix}{instance}/'
+    if os.path.isdir(cachePath):
+      deleteDirectoryRecursively(cachePath)
+
 if __name__ == "__main__":
+  atexit.register(shotdownCleanup)
   main()
+  atexit.unregister(shutdownCleanup)
