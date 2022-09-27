@@ -197,6 +197,8 @@ def transcode(manger, instance):
 
 def _transcode_segment(i, j, trim, instance):
   cache_path = f'{CACHE_PREFIX}{instance}/'
+  # set -hwaccel cuda if useNvidia is true
+  hwaccel = ['-hwaccel', 'cuda'] if useNvidia else []
   (
     ffmpeg
     .input(f'{cache_path}segments/out{i:05d}.ts')
@@ -213,6 +215,7 @@ def _transcode_segment(i, j, trim, instance):
     .global_args('-loglevel', 'error')
     .global_args('-hide_banner')
     .global_args('-nostdin')
+    .global_args(*hwaccel)
     .run()
   )
 
@@ -291,13 +294,25 @@ def run(manager, config):
 
 CACHE_PREFIX = "./" # needs to end with a slash
 
+def ffmpegCompiledWithFlag(flag):
+  _,stderr = (
+    ffmpeg
+    .input("aevalsrc=0", f="lavfi", t=0.1)
+    .output("pipe:", f="wav")
+    .global_args('-nostdin')
+    .run(capture_stdout=True, capture_stderr=True)
+  )
+  return flag in stderr.decode("utf-8")
+
+canUseNvidia = ffmpegCompiledWithFlag("--enable-nvdec")
+useNvidia = False
 invert = False
 quality = 20
 aggressiveness = 3
 reencode = False
 
 def main():
-  global invert, quality, aggressiveness, reencode
+  global useNvidia, invert, quality, aggressiveness, reencode
   parser = argparse.ArgumentParser(description=textwrap.dedent('''
     LectureCut is a tool to remove silence from videos.
 
@@ -341,9 +356,13 @@ def main():
           ' This will cut out all segments that are not silence.',
       required=False,
       action='store_true')
+  if canUseNvidia:
+    parser.add_argument('-n', '--nvidia', help='Use the Nvidia GPU when possible', required=False, action='store_true')
 
   args = parser.parse_args()
 
+  if hasattr(args, 'nvidia') and args.nvidia:
+    useNvidia = True
   if args.invert:
     invert = True
   if args.quality:
