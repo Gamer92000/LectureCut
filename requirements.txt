@@ -3,3 +3,4 @@ webrtcvad
 opencv-python
 joblib
 enlighten
+atexit

@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 
+import argparse
+import atexit
+import cv2
+import enlighten
 import ffmpeg
 import os
-import cv2
+import textwrap
 import time
+import uuid
 import vad
 from joblib import Parallel, delayed
-import uuid
-import enlighten
-import time
 from queue import Queue
 from threading import Thread
-import sys
-import argparse
-import textwrap
-import atexit
 
 instances = {}
 
