@@ -46,8 +46,5 @@ If you want to contribute to this project, feel free to open a pull request. I w
 
 ## 🔖 TODOs
 
-- [ ] Add NVENC support
 - [ ] Improve Batch processing
-- [ ] Improve argparse help
-- [ ] Update README to reflect more features
 - [ ] Use a more suitable cache location

@@ -3,7 +3,7 @@ import ffmpeg
 import math
 import webrtcvad
 
-kernSize = 30
+KERN_SIZE = 30
 
 def read_audio(path):
   """Reads the video file.
@@ -45,7 +45,7 @@ def frame_generator(frame_duration_ms, audio, sample_rate):
     offset += n
 
 
-def buildGaussKernel(n_frames):
+def build_gauss_kernel(n_frames):
   """
   n_frames: number of frames to consider (needs to be odd)
   """
@@ -68,7 +68,7 @@ def buildGaussKernel(n_frames):
   kernel = [x / kernelSum for x in kernel]
   return kernel
 
-def clipGaussKernel(kernel, side, cutoff):
+def clip_gauss_kernel(kernel, side, cutoff):
   """
   removes part of the kernel and normalizes the remaining part
   kernel: gaussian kernel
@@ -97,21 +97,34 @@ def vad_collector(sample_rate, frame_duration_ms, kernel_size, vad, frames):
   frames: a source of audio frames (sequence or generator).
   Returns: A list of (start, end) timestamps.
   """
-  vad_frames = [(frame, vad.is_speech(frame.bytes, sample_rate)) for frame in frames]
+  vad_frames = [(frame, vad.is_speech(frame.bytes, sample_rate))
+                for frame in frames]
 
-  kernel = buildGaussKernel(kernel_size * 2 + 1)
+  kernel = build_gauss_kernel(kernel_size * 2 + 1)
   filtered_vad_frames = []
   for i in range(len(vad_frames)):
     if i < kernel_size:
-      tmpKernel = clipGaussKernel(kernel, "left", kernel_size - i)
-      filtered_vad_frames.append((vad_frames[i][0], sum([x[1] * y for x, y in zip(vad_frames[i : i+kernel_size+1], tmpKernel)])))
+      tmpKernel = clip_gauss_kernel(kernel, "left", kernel_size - i)
+      filtered_vad_frames.append((vad_frames[i][0], sum([x[1] * y
+          for x, y in
+          zip(vad_frames[i : i+kernel_size+1], tmpKernel)
+          ])))
     elif i > len(vad_frames) - kernel_size :
-      tmpKernel = clipGaussKernel(kernel, "right", kernel_size - (len(vad_frames) - i))
-      filtered_vad_frames.append((vad_frames[i][0], sum([x[1] * y for x, y in zip(vad_frames[i-kernel_size : i+1], tmpKernel)])))
+      tmpKernel = clip_gauss_kernel(kernel, "right", 
+          kernel_size - (len(vad_frames) - i))
+      filtered_vad_frames.append((vad_frames[i][0], sum([x[1] * y
+          for x, y in
+          zip(vad_frames[i-kernel_size : i+1], tmpKernel)
+          ])))
     else:
-      filtered_vad_frames.append((vad_frames[i][0], sum([x[1] * y for x, y in zip(vad_frames[i-kernel_size : i+kernel_size+1], kernel)])))
+      filtered_vad_frames.append((vad_frames[i][0], sum([x[1] * y
+          for x, y in
+          zip(vad_frames[i-kernel_size : i+kernel_size+1], kernel)
+          ])))
 
-  segments = [(x[0].timestamp, x[0].timestamp+x[0].duration) for x in filtered_vad_frames if x[1] > 0.5]
+  segments = [(x[0].timestamp, x[0].timestamp+x[0].duration)
+      for x in
+      filtered_vad_frames if x[1] > 0.5]
   # merge segments when no more than .2 second between them
   newSegments = []
   i = 0
@@ -132,7 +145,7 @@ def run(file, aggressiveness, invert=False):
   vad = webrtcvad.Vad(aggressiveness)
   frames = frame_generator(30, audio, sample_rate)
   frames = list(frames)
-  segments = vad_collector(sample_rate, 30, kernSize, vad, frames)  # [(start, end)]
+  segments = vad_collector(sample_rate, 30, KERN_SIZE, vad, frames)  
   cuts = segments
 
   if invert:
