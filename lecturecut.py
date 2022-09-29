@@ -265,7 +265,7 @@ def run(manager, config):
   file_name = os.path.basename(instances[instance]["file"])
   file_name = manager.term.orange(file_name)
   main_format = f'Cutting {file_name}{{fill}}'+\
-      'Stage: {{stage}}{{fill}}{{elapsed}}'
+      'Stage: {stage}{fill}{elapsed}'
   status = manager.status_bar(status_format=main_format,
                               color='bold_bright_white_on_lightslategray',
                               justify=enlighten.Justify.CENTER,
