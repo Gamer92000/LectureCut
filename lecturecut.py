@@ -2,6 +2,7 @@
 
 import argparse
 import atexit
+from itertools import takewhile
 import cv2
 import enlighten
 import ffmpeg
@@ -173,31 +174,30 @@ def transcode(manger, instance):
       unit='segments')
 
   # for i in segments:
-  def _segmentStuff(i):
+  def _process_segment(i):
     # cats are segments that need to be kept
     segment = segments[i]
     
     # find id of first cut ending after segment start
     first_cut_id, first_cut = next((x for x in enumerate(cuts)
-        if x[1][1] > segment["start"]), None)
-    
+        if x[1][1] > segment["start"]), (-1, None))
+
     # skip segment if it ends before the current cut starts
-    if not first_cut or first_cut[0] >= segment["end"]:
+    if first_cut == None or first_cut[0] >= segment["end"]:
       pbar.update()
       return
 
     # if completely enclosed by a cut, copy
-    if first_cut[0] < segment["start"]:
+    if first_cut[0] <= segment["start"] and first_cut[1] >= segment["end"]:
       os.rename(f"{cache_path}segments/out{i:05d}.ts",
           f"{cache_path}cutSegments/out{i:05d}.ts")
       pbar.update()
       return
 
     # find all cuts that start before segment end
-    all_cuts = [cut for cut in cuts[first_cut_id:]
-        if cut[0] < segment["end"]]
-    if first_cut not in all_cuts:
-      all_cuts.insert(0, first_cut)
+    cuts_in_segment = list(takewhile(lambda x: x[0] < segment["end"],
+        cuts[first_cut_id+1:]))
+    all_cuts = [first_cut] + cuts_in_segment
 
     keep = []
     for cut in all_cuts:
@@ -211,39 +211,32 @@ def transcode(manger, instance):
     # convert keep list from global time to segment time
     keep = [(x[0] - segment['start'], x[1] - segment['start']) for x in keep]
     
-    # Parallel(n_jobs=TRANSCODER_PROCESSES, require="sharedmem")(
-    #     delayed(_transcode_segment)
-    #     (i, j, x, instance)
-    #     for j,x in enumerate(keep))
-    for j,x in enumerate(keep):
-      _transcode_segment(i, j, x, instance)
+    for j,trim in enumerate(keep):
+      (
+        ffmpeg
+        .input(f'{cache_path}segments/out{i:05d}.ts')
+        .output(f'{cache_path}cutSegments/out{i:05d}_{j:03d}.ts',
+            f='mpegts',
+            ss=trim[0],
+            to=trim[1],
+            acodec="copy",
+            vcodec="libx264",
+            preset="fast",
+            crf=quality,
+            reset_timestamps=1,
+            force_key_frames=0)
+        .global_args('-loglevel', 'error')
+        .global_args('-hide_banner')
+        .global_args('-nostdin')
+        .run()
+      )
     pbar.update()
   Parallel(n_jobs=TRANSCODER_PROCESSES, require="sharedmem")(
-      delayed(_segmentStuff)
+      delayed(_process_segment)
       (i)
       for i in segments)
   pbar.close()
 
-def _transcode_segment(i, j, trim, instance):
-  cache_path = f'{CACHE_PREFIX}{instance}/'
-  (
-    ffmpeg
-    .input(f'{cache_path}segments/out{i:05d}.ts')
-    .output(f'{cache_path}cutSegments/out{i:05d}_{j:03d}.ts',
-        f='mpegts',
-        ss=trim[0],
-        to=trim[1],
-        acodec="copy",
-        vcodec="libx264",
-        preset="fast",
-        crf=quality,
-        reset_timestamps=1,
-        force_key_frames=0)
-    .global_args('-loglevel', 'error')
-    .global_args('-hide_banner')
-    .global_args('-nostdin')
-    .run()
-  )
 
 def concat_segments(manager, instance):
   cache_path = f'{CACHE_PREFIX}{instance}/'
