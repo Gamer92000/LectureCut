@@ -17,7 +17,7 @@ from functools import wraps
 import time
 
 
-TRANSCODER_PROCESSES = 2
+TRANSCODER_PROCESSES = 12
 
 
 def timing(func):
@@ -172,36 +172,37 @@ def transcode(manger, instance):
       desc='Transcoding',
       unit='segments')
 
-  current_cut = 0
-  for i in segments:
+  # for i in segments:
+  def _segmentStuff(i):
     # cats are segments that need to be kept
     segment = segments[i]
+    
+    # find id of first cut ending after segment start
+    first_cut_id, first_cut = next((x for x in enumerate(cuts)
+        if x[1][1] > segment["start"]), None)
+    
+    # skip segment if it ends before the current cut starts
+    if not first_cut or first_cut[0] >= segment["end"]:
+      pbar.update()
+      return
+
     # if completely enclosed by a cut, copy
-    if current_cut < len(cuts) and\
-        cuts[current_cut][0] <= segment["start"] and\
-        cuts[current_cut][1] >= segment["end"]:
+    if first_cut[0] < segment["start"]:
       os.rename(f"{cache_path}segments/out{i:05d}.ts",
           f"{cache_path}cutSegments/out{i:05d}.ts")
       pbar.update()
-      continue
-    # skip segment if it ends before the current cut starts
-    # or if it starts after the current cut ends
-    if current_cut < len(cuts) and\
-        (segment["end"] <= cuts[current_cut][0] or\
-            segment["start"] >= cuts[current_cut][1]):
-      pbar.update()
-      continue
+      return
 
-    # list of all things to be removed from the segment
+    # find all cuts that start before segment end
+    all_cuts = [cut for cut in cuts[first_cut_id:]
+        if cut[0] < segment["end"]]
+    if first_cut not in all_cuts:
+      all_cuts.insert(0, first_cut)
+
     keep = []
-    while current_cut < len(cuts) and (segment['end'] > cuts[current_cut][1]):
-      start = max(segment['start'], cuts[current_cut][0])
-      end = min(segment['end'], cuts[current_cut][1])
-      keep.append((start, end))
-      current_cut += 1
-    if current_cut < len(cuts) and segment['end'] > cuts[current_cut][0]:
-      start = max(segment['start'], cuts[current_cut][0])
-      end = min(segment['end'], cuts[current_cut][1])
+    for cut in all_cuts:
+      start = max(segment['start'], cut[0])
+      end = min(segment['end'], cut[1])
       keep.append((start, end))
 
     # filter keep list to remove segments that are too short
@@ -210,11 +211,17 @@ def transcode(manger, instance):
     # convert keep list from global time to segment time
     keep = [(x[0] - segment['start'], x[1] - segment['start']) for x in keep]
     
-    Parallel(n_jobs=TRANSCODER_PROCESSES, require="sharedmem")(
-        delayed(_transcode_segment)
-        (i, j, x, instance)
-        for j,x in enumerate(keep))
+    # Parallel(n_jobs=TRANSCODER_PROCESSES, require="sharedmem")(
+    #     delayed(_transcode_segment)
+    #     (i, j, x, instance)
+    #     for j,x in enumerate(keep))
+    for j,x in enumerate(keep):
+      _transcode_segment(i, j, x, instance)
     pbar.update()
+  Parallel(n_jobs=TRANSCODER_PROCESSES, require="sharedmem")(
+      delayed(_segmentStuff)
+      (i)
+      for i in segments)
   pbar.close()
 
 def _transcode_segment(i, j, trim, instance):
