@@ -13,6 +13,27 @@ import vad
 from joblib import Parallel, delayed
 from queue import Queue
 from threading import Thread
+from functools import wraps
+import time
+
+
+TRANSCODER_PROCESSES = 2
+
+
+def timing(func):
+  @wraps(func)
+  def timeit_wrapper(*args, **kwargs):
+    start_time = time.perf_counter()
+    result = func(*args, **kwargs)
+    end_time = time.perf_counter()
+    total_time = end_time - start_time
+    fileName = instances[args[1]]["file"]
+    data = f'{func.__name__} {fileName} took {total_time:.4f} seconds with {TRANSCODER_PROCESSES} processes.\n'
+    with open('performance.log', 'a') as f:
+      f.write(data)
+    return result
+  return timeit_wrapper
+
 
 instances = {}
 
@@ -139,6 +160,7 @@ def _get_video_length(pbar, videoPath):
   if pbar: pbar.update()
   return frame_count / fps
 
+@timing
 def transcode(manger, instance):
   global instances
 
@@ -188,7 +210,7 @@ def transcode(manger, instance):
     # convert keep list from global time to segment time
     keep = [(x[0] - segment['start'], x[1] - segment['start']) for x in keep]
     
-    Parallel(n_jobs=2, require="sharedmem")(
+    Parallel(n_jobs=TRANSCODER_PROCESSES, require="sharedmem")(
         delayed(_transcode_segment)
         (i, j, x, instance)
         for j,x in enumerate(keep))
