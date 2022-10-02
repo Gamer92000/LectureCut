@@ -23,21 +23,6 @@ Some ideas for contributions can be found in the [issues](https://github.com/Gam
 
 ## 🚀 Usage
 
-### 👶 Requirements
-
-First you need to have [ffmpeg](https://ffmpeg.org/download.html) and [Python 3](https://www.python.org/downloads/) and [pip](https://pip.pypa.io/en/stable/installing/) installed.  
-To install the python dependencies, simply run:
-```bash
-pip install -r requirements.txt
-```
-
-### 🏃 Running
-
-To run the program, simply run:
-```bash
-python lecturecut.py -h
-```
-
 ### 🐳 Docker
 Docker is a convenient way to build and run LectureCut. Instead of manually installing and maintaining versions of ffmpeg
 and various python libraries on your machine, you can utilize Docker to run LectureCut in as a container.
@@ -67,6 +52,23 @@ docker run -it \
   -v /path/to/input_files/:/tmp/input_files/ \
   -v /path/to/output_files/:/tmp/output_files/ \
   ghcr.io/gamer92000/lecturecut:main -i /tmp/input_files/video_in.mp4 -o /tmp/output_files/video_out.mp4 -q 25 -a 2
+```
+
+### 🐍 Python
+
+#### 👶 Requirements
+
+First you need to have [ffmpeg](https://ffmpeg.org/download.html) and [Python 3](https://www.python.org/downloads/) and [pip](https://pip.pypa.io/en/stable/installing/) installed.  
+To install the python dependencies, simply run:
+```bash
+pip install -r requirements.txt
+```
+
+#### 🏃 Running
+
+To run the program, simply run:
+```bash
+python src/lecturecut.py -h
 ```
 
 ## 📝 License
