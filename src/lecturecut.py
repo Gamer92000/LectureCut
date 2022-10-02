@@ -3,6 +3,7 @@
 import argparse
 import atexit
 from itertools import takewhile
+import multiprocessing
 import cv2
 import enlighten
 import ffmpeg
@@ -12,78 +13,15 @@ import time
 import uuid
 import vad
 from joblib import Parallel, delayed
-from queue import Queue
-from threading import Thread
-from functools import wraps
-import time
+from helper import delete_directory_recursively, read_progress
 
 
-TRANSCODER_PROCESSES = 12
+N_CORES = multiprocessing.cpu_count()
+PROCESSES = N_CORES // 4
 
-
-def timing(func):
-  @wraps(func)
-  def timeit_wrapper(*args, **kwargs):
-    start_time = time.perf_counter()
-    result = func(*args, **kwargs)
-    end_time = time.perf_counter()
-    total_time = end_time - start_time
-    fileName = instances[args[1]]["file"]
-    data = f'{func.__name__} {fileName} took {total_time:.4f} seconds with {TRANSCODER_PROCESSES} processes.\n'
-    with open('performance.log', 'a') as f:
-      f.write(data)
-    return result
-  return timeit_wrapper
-
+CACHE_PREFIX = "./" # needs to end with a slash
 
 instances = {}
-
-def reader(pipe, queue):
-  try:
-    with pipe:
-      for line in iter(pipe.readline, b''):
-        queue.put((pipe, line))
-  finally:
-    queue.put(None)
-
-def delete_directory_recursively(path, retryCounter=10):
-  if os.path.exists(path):
-    for _ in range(retryCounter):
-      try:
-        for filename in os.listdir(path):
-          if os.path.isdir(path + filename):
-            delete_directory_recursively(path + filename + '/')
-          else:
-            for _ in range(retryCounter):
-              try:
-                os.remove(path + filename)
-                break
-              except:
-                time.sleep(0.1)
-        os.rmdir(path)
-        break
-      except:
-        time.sleep(0.1)
-
-def read_progress(pbar, ffmpeg_run):
-  q = Queue()
-  Thread(target=reader, args=(ffmpeg_run.stdout, q)).start()
-  Thread(target=reader, args=(ffmpeg_run.stderr, q)).start()
-  for _ in range(2):
-    for source, line in iter(q.get, None):
-      line = line.decode()
-      if source == ffmpeg_run.stderr:
-        print(line)
-      else:
-        line = line.rstrip()
-        parts = line.split('=')
-        key = parts[0] if len(parts) > 0 else None
-        value = parts[1] if len(parts) > 1 else None
-        if key == 'out_time_ms':
-          time = max(round(float(value) / 1000000., 2), 0)
-          pbar.update(int(time * 1000) - pbar.count)
-        elif key == 'progress' and value == 'end':
-          pbar.update(pbar.total - pbar.count)
 
 def init_cache(instance):
   cache_path = CACHE_PREFIX + f"/{instance}/"
@@ -140,7 +78,7 @@ def _analyse_segments(manager, instance):
       desc='Analysing  ',
       unit='segments')
 
-  durations = Parallel(n_jobs=2)(
+  durations = Parallel(n_jobs=PROCESSES)(
       delayed(_get_video_length)
       (pbar, f'{cache_path}segments/{path}')
       for path in segments)
@@ -161,7 +99,6 @@ def _get_video_length(pbar, videoPath):
   if pbar: pbar.update()
   return frame_count / fps
 
-@timing
 def transcode(manger, instance):
   global instances
 
@@ -231,7 +168,7 @@ def transcode(manger, instance):
         .run()
       )
     pbar.update()
-  Parallel(n_jobs=TRANSCODER_PROCESSES, require="sharedmem")(
+  Parallel(n_jobs=PROCESSES, require="sharedmem")(
       delayed(_process_segment)
       (i)
       for i in segments)
@@ -310,8 +247,6 @@ def run(manager, config):
   cleanup(instance)
   status.update(stage=f"[4/4] Done 🎉", force=True)
   status.close()
-
-CACHE_PREFIX = "./" # needs to end with a slash
 
 invert = False
 quality = 20
