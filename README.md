@@ -39,10 +39,10 @@ python lecturecut.py -h
 ```
 
 ### 🐳 Docker
-Docker is a convenient way to build and run LectureCut. Instead of manually installing and maintaining ffmpeg and Python 
-versions on your machine, you can utilize the Docker for installation and running LectureCut without worrying about the
-version incompatibilities of the software on your machine. Moreover, this repo is expected to change at a fast pace, 
-and so Docker is the easiest way to ensure that you're running the most up-to-date version of LectureCut.
+Docker is a convenient way to build and run LectureCut. Instead of manually installing and maintaining versions of ffmpeg
+and various python libraries on your machine, you can utilize Docker to run LectureCut in as a container.
+Moreover, this repo is expected to change at a fast pace, and so Docker is the easiest way to ensure that you're running
+the most up-to-date version of LectureCut and its dependencies.
 
 #### How it works:
 
