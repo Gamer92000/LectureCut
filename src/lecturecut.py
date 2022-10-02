@@ -2,6 +2,8 @@
 
 import argparse
 import atexit
+from itertools import takewhile
+import multiprocessing
 import cv2
 import enlighten
 import ffmpeg
@@ -11,57 +13,15 @@ import time
 import uuid
 import vad
 from joblib import Parallel, delayed
-from queue import Queue
-from threading import Thread
+from helper import delete_directory_recursively, read_progress
+
+
+N_CORES = multiprocessing.cpu_count()
+PROCESSES = N_CORES // 4
+
+CACHE_PREFIX = "./" # needs to end with a slash
 
 instances = {}
-
-def reader(pipe, queue):
-  try:
-    with pipe:
-      for line in iter(pipe.readline, b''):
-        queue.put((pipe, line))
-  finally:
-    queue.put(None)
-
-def delete_directory_recursively(path, retryCounter=10):
-  if os.path.exists(path):
-    for _ in range(retryCounter):
-      try:
-        for filename in os.listdir(path):
-          if os.path.isdir(path + filename):
-            delete_directory_recursively(path + filename + '/')
-          else:
-            for _ in range(retryCounter):
-              try:
-                os.remove(path + filename)
-                break
-              except:
-                time.sleep(0.1)
-        os.rmdir(path)
-        break
-      except:
-        time.sleep(0.1)
-
-def read_progress(pbar, ffmpeg_run):
-  q = Queue()
-  Thread(target=reader, args=(ffmpeg_run.stdout, q)).start()
-  Thread(target=reader, args=(ffmpeg_run.stderr, q)).start()
-  for _ in range(2):
-    for source, line in iter(q.get, None):
-      line = line.decode()
-      if source == ffmpeg_run.stderr:
-        print(line)
-      else:
-        line = line.rstrip()
-        parts = line.split('=')
-        key = parts[0] if len(parts) > 0 else None
-        value = parts[1] if len(parts) > 1 else None
-        if key == 'out_time_ms':
-          time = max(round(float(value) / 1000000., 2), 0)
-          pbar.update(int(time * 1000) - pbar.count)
-        elif key == 'progress' and value == 'end':
-          pbar.update(pbar.total - pbar.count)
 
 def init_cache(instance):
   cache_path = CACHE_PREFIX + f"/{instance}/"
@@ -118,7 +78,7 @@ def _analyse_segments(manager, instance):
       desc='Analysing  ',
       unit='segments')
 
-  durations = Parallel(n_jobs=2)(
+  durations = Parallel(n_jobs=PROCESSES)(
       delayed(_get_video_length)
       (pbar, f'{cache_path}segments/{path}')
       for path in segments)
@@ -150,36 +110,35 @@ def transcode(manger, instance):
       desc='Transcoding',
       unit='segments')
 
-  current_cut = 0
-  for i in segments:
+  def _process_segment(i):
     # cats are segments that need to be kept
     segment = segments[i]
+    
+    # find id of first cut ending after segment start
+    first_cut_id, first_cut = next((x for x in enumerate(cuts)
+        if x[1][1] > segment["start"]), (-1, None))
+
+    # skip segment if it ends before the current cut starts
+    if first_cut == None or first_cut[0] >= segment["end"]:
+      pbar.update()
+      return
+
     # if completely enclosed by a cut, copy
-    if current_cut < len(cuts) and\
-        cuts[current_cut][0] <= segment["start"] and\
-        cuts[current_cut][1] >= segment["end"]:
+    if first_cut[0] <= segment["start"] and first_cut[1] >= segment["end"]:
       os.rename(f"{cache_path}segments/out{i:05d}.ts",
           f"{cache_path}cutSegments/out{i:05d}.ts")
       pbar.update()
-      continue
-    # skip segment if it ends before the current cut starts
-    # or if it starts after the current cut ends
-    if current_cut < len(cuts) and\
-        (segment["end"] <= cuts[current_cut][0] or\
-            segment["start"] >= cuts[current_cut][1]):
-      pbar.update()
-      continue
+      return
 
-    # list of all things to be removed from the segment
+    # find all cuts that start before segment end
+    cuts_in_segment = list(takewhile(lambda x: x[0] < segment["end"],
+        cuts[first_cut_id+1:]))
+    all_cuts = [first_cut] + cuts_in_segment
+
     keep = []
-    while current_cut < len(cuts) and (segment['end'] > cuts[current_cut][1]):
-      start = max(segment['start'], cuts[current_cut][0])
-      end = min(segment['end'], cuts[current_cut][1])
-      keep.append((start, end))
-      current_cut += 1
-    if current_cut < len(cuts) and segment['end'] > cuts[current_cut][0]:
-      start = max(segment['start'], cuts[current_cut][0])
-      end = min(segment['end'], cuts[current_cut][1])
+    for cut in all_cuts:
+      start = max(segment['start'], cut[0])
+      end = min(segment['end'], cut[1])
       keep.append((start, end))
 
     # filter keep list to remove segments that are too short
@@ -188,33 +147,32 @@ def transcode(manger, instance):
     # convert keep list from global time to segment time
     keep = [(x[0] - segment['start'], x[1] - segment['start']) for x in keep]
     
-    Parallel(n_jobs=2, require="sharedmem")(
-        delayed(_transcode_segment)
-        (i, j, x, instance)
-        for j,x in enumerate(keep))
+    for j,trim in enumerate(keep):
+      (
+        ffmpeg
+        .input(f'{cache_path}segments/out{i:05d}.ts')
+        .output(f'{cache_path}cutSegments/out{i:05d}_{j:03d}.ts',
+            f='mpegts',
+            ss=trim[0],
+            to=trim[1],
+            acodec="copy",
+            vcodec="libx264",
+            preset="fast",
+            crf=quality,
+            reset_timestamps=1,
+            force_key_frames=0)
+        .global_args('-loglevel', 'error')
+        .global_args('-hide_banner')
+        .global_args('-nostdin')
+        .run()
+      )
     pbar.update()
+  Parallel(n_jobs=PROCESSES, require="sharedmem")(
+      delayed(_process_segment)
+      (i)
+      for i in segments)
   pbar.close()
 
-def _transcode_segment(i, j, trim, instance):
-  cache_path = f'{CACHE_PREFIX}{instance}/'
-  (
-    ffmpeg
-    .input(f'{cache_path}segments/out{i:05d}.ts')
-    .output(f'{cache_path}cutSegments/out{i:05d}_{j:03d}.ts',
-        f='mpegts',
-        ss=trim[0],
-        to=trim[1],
-        acodec="copy",
-        vcodec="libx264",
-        preset="fast",
-        crf=quality,
-        reset_timestamps=1,
-        force_key_frames=0)
-    .global_args('-loglevel', 'error')
-    .global_args('-hide_banner')
-    .global_args('-nostdin')
-    .run()
-  )
 
 def concat_segments(manager, instance):
   cache_path = f'{CACHE_PREFIX}{instance}/'
@@ -288,8 +246,6 @@ def run(manager, config):
   cleanup(instance)
   status.update(stage=f"[4/4] Done 🎉", force=True)
   status.close()
-
-CACHE_PREFIX = "./" # needs to end with a slash
 
 invert = False
 quality = 20
