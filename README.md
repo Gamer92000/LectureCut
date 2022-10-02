@@ -38,6 +38,33 @@ To run the program, simply run:
 python lecturecut.py -h
 ```
 
+### 🐳 Docker
+Docker is a convenient way to build and run LectureCut. Instead of manually installing and maintaining ffmpeg and Python 
+versions on your machine, you can utilize the Docker for installation and running LectureCut without worrying about the
+version incompatibilities of the software on your machine. Moreover, this repo is expected to change at a fast pace, 
+and so Docker is the easiest way to ensure that you're running the most up-to-date version of LectureCut.
+
+#### How it works:
+
+After cloning this repo, you can build the image with this command:
+```bash
+docker build . -t lecturecut
+```
+
+Simple example: 
+To run LectureCut via Docker, simply mount the file location into the container. In this example,
+video.mp4 is mounted into /tmp in the container and `lecturecut` is run with the `-i` input flag pointing to this location.
+```bash
+docker run -it -v /path/to/video_file/on_your_machine/video.mp4:/tmp/video.mp4 lecturecut -i /tmp/video.mp4
+```
+
+Multiple directories example:
+```bash
+docker run -it \
+  -v /path/to/input_files/:/tmp/input_files/ \
+  -v /path/to/output_files/:/tmp/output_files/ \
+  lecturecut -i /tmp/input_files/video_in.mp4 -o /tmp/output_files/video_out.mp4 -q 25 -a 2
+```
 
 ## 📝 License
 
