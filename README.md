@@ -58,7 +58,7 @@ Simple example:
 To run LectureCut via Docker, simply mount the file location into the container. In this example,
 video.mp4 is mounted into /tmp in the container and `lecturecut` is run with the `-i` input flag pointing to this location.
 ```bash
-docker run -it -v /path/to/video_file/on_your_machine/video.mp4:/tmp/video.mp4 lecturecut -i /tmp/video.mp4
+docker run -it -v /path/to/video_file/on_your_machine/video.mp4:/tmp/video.mp4 ghcr.io/gamer92000/lecturecut:main -i /tmp/video.mp4
 ```
 
 Multiple directories example:
@@ -66,7 +66,7 @@ Multiple directories example:
 docker run -it \
   -v /path/to/input_files/:/tmp/input_files/ \
   -v /path/to/output_files/:/tmp/output_files/ \
-  lecturecut -i /tmp/input_files/video_in.mp4 -o /tmp/output_files/video_out.mp4 -q 25 -a 2
+  ghcr.io/gamer92000/lecturecut:main -i /tmp/input_files/video_in.mp4 -o /tmp/output_files/video_out.mp4 -q 25 -a 2
 ```
 
 ## 📝 License
