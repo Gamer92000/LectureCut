@@ -46,9 +46,12 @@ the most up-to-date version of LectureCut and its dependencies.
 
 #### How it works:
 
-After cloning this repo, you can build the image with this command:
+Pull the LectureCut image from GitHub Container Registry.
 ```bash
-docker build . -t lecturecut
+# pull a specific release version
+docker pull ghcr.io/gamer92000/lecturecut:<version>
+# pull the current main
+docker pull ghcr.io/gamer92000/lecturecut:main
 ```
 
 Simple example: 
