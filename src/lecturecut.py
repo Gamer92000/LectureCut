@@ -110,7 +110,6 @@ def transcode(manger, instance):
       desc='Transcoding',
       unit='segments')
 
-  # for i in segments:
   def _process_segment(i):
     # cats are segments that need to be kept
     segment = segments[i]
