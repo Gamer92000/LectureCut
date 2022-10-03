@@ -12,10 +12,10 @@ def read_audio(path):
   out, _ = (
     ffmpeg
     .input(path)
-    .output('pipe:', format='s16le', acodec='pcm_s16le', ac=1, ar='16k')
-    .global_args('-loglevel', 'quiet')
-    .global_args('-hide_banner')
-    .global_args('-nostdin')
+    .output("pipe:", format="s16le", acodec="pcm_s16le", ac=1, ar="16k")
+    .global_args("-loglevel", "quiet")
+    .global_args("-hide_banner")
+    .global_args("-nostdin")
     .run(capture_stdout=True)
   )
   return out, 16000

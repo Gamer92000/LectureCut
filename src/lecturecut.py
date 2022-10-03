@@ -19,7 +19,8 @@ from helper import delete_directory_recursively, read_progress
 N_CORES = multiprocessing.cpu_count()
 PROCESSES = N_CORES // 4
 
-CACHE_PREFIX = "./" # needs to end with a slash
+# TODO: use pathlib
+CACHE_PREFIX = "./" # needs to end with a slash 
 
 instances = {}
 
@@ -50,19 +51,19 @@ def _split_video(manager, instance):
 
   total_input_length = _get_video_length(None, file)
   bar_total = int(total_input_length * 1000)
-  pbar = manager.counter(total=bar_total, desc='Segmenting ')
+  pbar = manager.counter(total=bar_total, desc="Segmenting ")
 
   split = (
     ffmpeg
     .input(file)
-    .output(cache_path + 'segments/out%05d.ts',
-        f='segment',
-        c='copy',
+    .output(cache_path + "segments/out%05d.ts",
+        f="segment",
+        c="copy",
         reset_timestamps=1)
-    .global_args('-progress', 'pipe:1')
-    .global_args('-loglevel', 'error')
-    .global_args('-hide_banner')
-    .global_args('-nostdin')
+    .global_args("-progress", "pipe:1")
+    .global_args("-loglevel", "error")
+    .global_args("-hide_banner")
+    .global_args("-nostdin")
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
   read_progress(pbar, split)
@@ -75,12 +76,12 @@ def _analyse_segments(manager, instance):
   
   segments = sorted(os.listdir(cache_path + "segments"))
   pbar = manager.counter(total=len(segments),
-      desc='Analysing  ',
-      unit='segments')
+      desc="Analysing  ",
+      unit="segments")
 
   durations = Parallel(n_jobs=PROCESSES)(
       delayed(_get_video_length)
-      (pbar, f'{cache_path}segments/{path}')
+      (pbar, f"{cache_path}segments/{path}")
       for path in segments)
   # calculate start end map
   total_duration = 0
@@ -107,13 +108,13 @@ def transcode(manger, instance):
   cuts = instances[instance]["cuts"]
 
   pbar = manger.counter(total=len(segments),
-      desc='Transcoding',
-      unit='segments')
+      desc="Transcoding",
+      unit="segments")
 
   def _process_segment(i):
     # cats are segments that need to be kept
     segment = segments[i]
-    
+
     # find id of first cut ending after segment start
     first_cut_id, first_cut = next((x for x in enumerate(cuts)
         if x[1][1] > segment["start"]), (-1, None))
@@ -137,22 +138,22 @@ def transcode(manger, instance):
 
     keep = []
     for cut in all_cuts:
-      start = max(segment['start'], cut[0])
-      end = min(segment['end'], cut[1])
+      start = max(segment["start"], cut[0])
+      end = min(segment["end"], cut[1])
       keep.append((start, end))
 
     # filter keep list to remove segments that are too short
     keep = [x for x in keep if x[1] - x[0] > 0.1]
 
     # convert keep list from global time to segment time
-    keep = [(x[0] - segment['start'], x[1] - segment['start']) for x in keep]
-    
+    keep = [(x[0] - segment["start"], x[1] - segment["start"]) for x in keep]
+
     for j,trim in enumerate(keep):
       (
         ffmpeg
-        .input(f'{cache_path}segments/out{i:05d}.ts')
-        .output(f'{cache_path}cutSegments/out{i:05d}_{j:03d}.ts',
-            f='mpegts',
+        .input(f"{cache_path}segments/out{i:05d}.ts")
+        .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
+            f="mpegts",
             ss=trim[0],
             to=trim[1],
             acodec="copy",
@@ -161,9 +162,9 @@ def transcode(manger, instance):
             crf=quality,
             reset_timestamps=1,
             force_key_frames=0)
-        .global_args('-loglevel', 'error')
-        .global_args('-hide_banner')
-        .global_args('-nostdin')
+        .global_args("-loglevel", "error")
+        .global_args("-hide_banner")
+        .global_args("-nostdin")
         .run()
       )
     pbar.update()
@@ -175,34 +176,34 @@ def transcode(manger, instance):
 
 
 def concat_segments(manager, instance):
-  cache_path = f'{CACHE_PREFIX}{instance}/'
+  cache_path = f"{CACHE_PREFIX}{instance}/"
   output = instances[instance]["output"]
-  with open(f'{cache_path}list.txt', 'w') as f:
-    for file in sorted(os.listdir(f'{cache_path}cutSegments')):
+  with open(f"{cache_path}list.txt", "w") as f:
+    for file in sorted(os.listdir(f"{cache_path}cutSegments")):
       f.write(f"file 'cutSegments/{file}'\n")
   total_cut_length = sum([x[1] - x[0] for x in instances[instance]["cuts"]])
   bar_total = int(total_cut_length * 1000)
-  pbar = manager.counter(total=bar_total, desc='Rendering  ')
+  pbar = manager.counter(total=bar_total, desc="Rendering  ")
   outputargs = {}
   if reencode:
     outputargs = {
-      'vcodec': 'libx264',
-      'preset': 'fast',
-      'crf': quality,
-      'acodec': 'aac',
+      "vcodec": "libx264",
+      "preset": "fast",
+      "crf": quality,
+      "acodec": "aac",
     }
   else:
     outputargs = {
-      'c': 'copy',
+      "c": "copy",
     }
   concat = (
     ffmpeg
-    .input(f'{cache_path}list.txt', f='concat', safe=0)
+    .input(f"{cache_path}list.txt", f="concat", safe=0)
     .output(output, **outputargs)
-    .global_args('-progress', 'pipe:1')
-    .global_args('-loglevel', 'error')
-    .global_args('-hide_banner')
-    .global_args('-nostdin')
+    .global_args("-progress", "pipe:1")
+    .global_args("-loglevel", "error")
+    .global_args("-hide_banner")
+    .global_args("-nostdin")
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
   read_progress(pbar, concat)
@@ -222,10 +223,10 @@ def run(manager, config):
 
   file_name = os.path.basename(instances[instance]["file"])
   file_name = manager.term.orange(file_name)
-  main_format = f'Cutting {file_name}{{fill}}'+\
-      'Stage: {stage}{fill}{elapsed}'
+  main_format = f"Cutting {file_name}{{fill}}"+\
+      "Stage: {stage}{fill}{elapsed}"
   status = manager.status_bar(status_format=main_format,
-                              color='bold_bright_white_on_lightslategray',
+                              color="bold_bright_white_on_lightslategray",
                               justify=enlighten.Justify.CENTER,
                               stage=f"[0/4] Initializing",
                               autorefresh=True,
@@ -233,7 +234,7 @@ def run(manager, config):
 
   init_cache(instance)
   status.update(stage=f"[1/4] Preparing video")
-  Parallel(n_jobs=2, require='sharedmem')([
+  Parallel(n_jobs=2, require="sharedmem")([
       delayed(generate_cut_list)(instance),
       delayed(prepare_video)(manager, instance)])
   status.update(stage=f"[2/4] Transcoding video")
@@ -254,7 +255,7 @@ reencode = False
 
 def main():
   global invert, quality, aggressiveness, reencode
-  parser = argparse.ArgumentParser(description=textwrap.dedent('''
+  parser = argparse.ArgumentParser(description=textwrap.dedent("""
     LectureCut is a tool to remove silence from videos.
 
     It uses WebRTC's VAD to detect silence and ffmpeg to transcode the video.
@@ -262,41 +263,41 @@ def main():
     that the video is split into segments and only the segments that need to be
     cut are transcoded. This results in a much faster transcoding process, but
     the output video will have a slightly lower quality than the input video.
-  '''))
+  """))
 
   parser.add_argument(
-      '-i', '--input',
-      help='The video file to process',
+      "-i", "--input",
+      help="The video file to process",
       required=True)
   parser.add_argument(
-      '-o', '--output',
-      help='The output file. If not specified,'+\
-          ' the input file will be overwritten',
+      "-o", "--output",
+      help="The output file. If not specified,"+\
+          " the input file will be overwritten",
       required=False)
   parser.add_argument(
-      '-q', '--quality',
-      help='The quality of the output video. Lower is better. Default: 20',
+      "-q", "--quality",
+      help="The quality of the output video. Lower is better. Default: 20",
       required=False,
       type=int,
       default=20)
   parser.add_argument(
-      '-a', '--aggressiveness',
-      help='The aggressiveness of the VAD.'+\
-          ' Higher is more aggressive. Default: 3',
+      "-a", "--aggressiveness",
+      help="The aggressiveness of the VAD."+\
+          " Higher is more aggressive. Default: 3",
       required=False,
       type=int,
       default=3)
   parser.add_argument(
-      '-r', '--reencode',
-      help='Reencode the video with a given video codec.',
+      "-r", "--reencode",
+      help="Reencode the video with a given video codec.",
       required=False,
       type=str)
   parser.add_argument(
-      '--invert',
-      help='Invert the selection.'+\
-          ' This will cut out all segments that are not silence.',
+      "--invert",
+      help="Invert the selection."+\
+          " This will cut out all segments that are not silence.",
       required=False,
-      action='store_true')
+      action="store_true")
 
   args = parser.parse_args()
 
@@ -313,12 +314,12 @@ def main():
     aggressiveness = 1
 
   manager = enlighten.get_manager()
-  name = manager.term.link('https://github.com/Gamer92000/LectureCut',
-      'LectureCut')
-  author = manager.term.link('https://github.com/Gamer92000', 'Gamer92000')
-  manager.status_bar(f' {name} - Made with ❤️ by {author}! ',
+  name = manager.term.link("https://github.com/Gamer92000/LectureCut",
+      "LectureCut")
+  author = manager.term.link("https://github.com/Gamer92000", "Gamer92000")
+  manager.status_bar(f" {name} - Made with ❤️ by {author}! ",
       position=1,
-      fill='-',
+      fill="-",
       justify=enlighten.Justify.CENTER)
 
   automatic_name_insert = "_lecturecut."
@@ -330,7 +331,7 @@ def main():
     files = sorted(os.listdir(args.input))
     files = [f for f in files if os.path.isfile(os.path.join(args.input, f))]
     files = [os.path.join(args.input, f) for f in files]
-    pbar = manager.counter(total=len(files), desc='Processing ')
+    pbar = manager.counter(total=len(files), desc="Processing ")
     get_file_path = lambda x: x
     if args.output:
       if not os.path.isdir(args.output):
@@ -366,7 +367,7 @@ def shotdown_cleanup():
   time.sleep(3)
   for instance in instances:
     instances[instance]["manager"].stop()
-    cachePath = f'{CACHE_PREFIX}{instance}/'
+    cachePath = f"{CACHE_PREFIX}{instance}/"
     if os.path.isdir(cachePath):
       delete_directory_recursively(cachePath)
 
