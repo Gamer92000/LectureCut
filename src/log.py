@@ -14,23 +14,11 @@ class LogMode(Enum):
 class LogLevel(Enum):
   DEBUG = 0
   INFO = 1
-  IMPORTANT = 2
+  WARNING = 2
+  ERROR = 3
 
-  def to_sting(self):
-    if self == self.DEBUG:
-      return "debug:"
-    elif self == self.INFO:
-      return "info:"
-    else:
-      return "important:"
-  
-  def to_val(self):
-    if self == self.DEBUG:
-      return 0
-    elif self == self.INFO:
-      return 1
-    else:
-      return 2
+  def __str__(self):
+    return self.name.lower() + ":"
 
 log_is_initialized = False
 log_mode = None
@@ -112,10 +100,10 @@ def log_print(message, level=LogLevel.INFO, toStdOut=False):
   if not log_is_initialized:
     log_init()
 
-  if not log_level.to_val() <= level.to_val():
+  if not log_level.value <= level.value:
     return
 
-  message = "{} {}".format(level.to_sting(), message)
+  message = "{} {}".format(level, message)
   if toStdOut or log_to_std_out:
     print(message)
   if log_mode == LogMode.FILE:
