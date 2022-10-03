@@ -60,15 +60,15 @@ def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO):
     # set default path
     if log_path == None:
       if os.name == "posix":
-        log_path = os.path.join(os.path.expanduser("~"), ".local", "LectureCut", "log.txt")
+        log_path = os.path.join(os.path.expanduser("~"), ".local", "var", "log", "LectureCut", "log.txt")
       else:
         log_path = os.path.join(os.getenv("%LOCALAPPDATA%"), "LectureCut", "log.txt")
     
     # TODO add exception handling
     if not os.path.exists(log_path):
       log_dir, _ = os.path.split(log_path)
-      os.mkdirs(log_dir, exist_ok=True)
-    log_file = open(log_path, "a")
+      os.makedirs(log_dir, exist_ok=True)
+    log_file = open(log_path, "w")
     log_mode = LogMode.FILE
 
   log_is_initialized = True
