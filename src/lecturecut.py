@@ -347,7 +347,7 @@ def process_files_in_dir(args, manager):
     else:
       get_file_path = lambda x: os.path.splitext(os.path.basename(x))[0] +\
           get_automatic_name_insert() +\
-          args.input.rsplit(x, 1)[1]
+          x.rsplit(".", 1)[1]
     for file in files:
       run(manager, {
         "file": file,
