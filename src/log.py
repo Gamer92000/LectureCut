@@ -59,25 +59,30 @@ def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO, logToStdOut=
       log_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
       log_sock.connect("/dev/log")
       log_mode = LogMode.SYSTEMD
-    except FileNotFoundError:
+    except:
       mode = LogMode.FILE
 
   # setup file logging
   if mode == LogMode.FILE:
-
-    # set default path
-    if log_path == None:
-      if os.name == "posix":
-        log_path = os.path.join(os.path.expanduser("~"), ".local", "var", "log", "LectureCut", "log.txt")
-      else:
-        log_path = os.path.join(os.getenv("%LOCALAPPDATA%"), "LectureCut", "log.txt") # TODO test with windows
-    
-    # TODO add exception handling
-    if not os.path.exists(log_path):
-      log_dir, _ = os.path.split(log_path)
-      os.makedirs(log_dir, exist_ok=True)
-    log_file = open(log_path, "w")
-    log_mode = LogMode.FILE
+    try:
+      # set default path
+      if log_path == None:
+        if os.name == "posix":
+          log_path = os.path.join(os.path.expanduser("~"), ".local", "var", "log", "LectureCut", "log.txt")
+        else:
+          log_path = os.path.join(os.getenv("%LOCALAPPDATA%"), "LectureCut", "log.txt") # TODO test with windows
+      
+        if not os.path.exists(log_path):
+          log_dir, _ = os.path.split(log_path)
+          os.makedirs(log_dir, exist_ok=True)
+        log_file = open(log_path, "w")
+        log_mode = LogMode.FILE
+    except:
+      print("!!!!!!!!!!!!!!!!!!!\n")
+      print("!!! CAN NOT LOG !!!\n")
+      print("!!!!!!!!!!!!!!!!!!!\n")
+      print("!! USING STD OUT !!\n")
+      logToStdOut = True
 
   log_is_initialized = True
   log_level = level
