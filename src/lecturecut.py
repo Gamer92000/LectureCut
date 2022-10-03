@@ -359,7 +359,6 @@ def main():
   args = parse_args()
   manager = create_manager()
 
-  # if input file is a directory, process all files in it
   if os.path.isdir(args.input):
     process_files_in_dir(args, manager)
 
