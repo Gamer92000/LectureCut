@@ -1,14 +1,15 @@
+# MIT License
+# Simple logger with journald and file support
+
 import socket
 import os
 from enum import Enum
 import time
 
-
 class LogMode(Enum):
   SYSTEMD = 0
   FILE = 1
   AUTO = 0
-
 
 class LogLevel(Enum):
   DEBUG = 0
@@ -36,10 +37,29 @@ log_mode = None
 log_sock = None
 log_file = None
 log_level = None
+log_to_std_out = False
 
+def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO, logToStdOut=False):
+  """
+  Sets up the logger. Must be called before the first call of log_print to set up the logger with non-default settings.
+  
+  log_init with default settings is called form log_print if the logger wasn't initialized.
+  This function will do nothing if the logger is in an initialized state.
 
-def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO):
-  global log_is_initialized, log_mode, log_sock, log_file, log_level
+  Parameters
+  ----------
+  mode : LogMode
+    AUTO, SYSTEMD : Try to write to journald or write to file if journald is unavailable.
+    FILE : Write to file. The old logfile is overwritten. (Default path: `~/.local/var/log/LectureCut/log.txt` or `%LOCALAPPDATA%\LectureCut\log.txt`)
+  log_path : Path
+    Path of the log file in FILE mode. Ignored if journald is used.
+  level : LogLevel
+    Maximum level of log messages that are logged.
+  logToStdOut : bool
+    If true, write messages to stdout and into the log.
+  """
+
+  global log_is_initialized, log_mode, log_sock, log_file, log_level, log_to_std_out
 
   # check if log system already initialized
   if log_is_initialized:
@@ -62,7 +82,7 @@ def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO):
       if os.name == "posix":
         log_path = os.path.join(os.path.expanduser("~"), ".local", "var", "log", "LectureCut", "log.txt")
       else:
-        log_path = os.path.join(os.getenv("%LOCALAPPDATA%"), "LectureCut", "log.txt")
+        log_path = os.path.join(os.getenv("%LOCALAPPDATA%"), "LectureCut", "log.txt") # TODO test with windows
     
     # TODO add exception handling
     if not os.path.exists(log_path):
@@ -73,14 +93,30 @@ def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO):
 
   log_is_initialized = True
   log_level = level
+  log_to_std_out = logToStdOut
 
 def log_print(message, level=LogLevel.INFO, toStdOut=False):
+  """
+  Write message into the log and initializes the logger if necessary.
+  
+  Parameters
+  ----------
+  message : str
+    Message that is written into the log.
+  level : LogLevel
+    Log-level of this log call.
+  logToStdOut : bool
+    If true, write messages to stdout and into the log.
+  """
+
   if not log_is_initialized:
     log_init()
+
   if not log_level.to_val() <= level.to_val():
     return
+
   message = "{} {}".format(level.to_sting(), message)
-  if toStdOut:
+  if toStdOut or log_to_std_out:
     print(message)
   if log_mode == LogMode.FILE:
     log_file.write("[{}] {}\n".format(time.time(), message))
@@ -88,6 +124,9 @@ def log_print(message, level=LogLevel.INFO, toStdOut=False):
     log_sock.send(bytes("LectureCut: {}".format(message), 'UTF-8'))
 
 def log_close():
+  """
+  Closes file handles, sockets and sets the logger to an uninitialized state.
+  """
   global log_is_initialized
 
   # check if log is initialized
