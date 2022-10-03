@@ -4,33 +4,6 @@ from pathlib import Path
 from queue import Queue
 from threading import Thread
 
-
-# TODO: replace with shutil.rmtree
-def delete_directory_recursively(path, retryCounter=10):
-  """
-  Delete a directory and all its contents.
-
-  path -- The path to the directory to delete.
-  retryCounter -- The number of times to retry deleting the directory.
-  """
-  if os.path.exists(path):
-    for _ in range(retryCounter):
-      try:
-        for filename in os.listdir(path):
-          if os.path.isdir(path + filename):
-            delete_directory_recursively(path + filename + "/")
-          else:
-            for _ in range(retryCounter):
-              try:
-                os.remove(path + filename)
-                break
-              except:
-                time.sleep(0.1)
-        os.rmdir(path)
-        break
-      except:
-        time.sleep(0.1)
-
 def reader(pipe, queue):
   """
   Read the output of a pipe and put it in a queue.
@@ -64,7 +37,7 @@ def read_progress(pbar, ffmpeg_run):
         line = line.rstrip()
         parts = line.split("=")
         key = parts[0] if len(parts) > 0 else None
-        value = parts[1] if len(parts) > 1 else None # TODO: this might cause float(none):
+        value = parts[1] if len(parts) > 1 else None # TODO: this might cause float(None):
         if key == "out_time_ms":
           time = max(round(float(value) / 1000000., 2), 0)
           pbar.update(int(time * 1000) - pbar.count)
