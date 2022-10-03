@@ -16,7 +16,7 @@ def read_audio(path):
     ffmpeg
     .input(path)
     .output("pipe:", format="s16le", acodec="pcm_s16le", ac=1, ar="16k")
-    .global_args("-loglevel", "quiet")
+    .global_args("-loglevel", "quiet") # TODO: This needs a cli flag
     .global_args("-hide_banner")
     .global_args("-nostdin")
     .run(capture_stdout=True)
