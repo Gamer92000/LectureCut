@@ -253,7 +253,7 @@ quality = 20
 aggressiveness = 3
 reencode = False
 
-def main():
+def parse_args():
   global invert, quality, aggressiveness, reencode
   parser = argparse.ArgumentParser(description=textwrap.dedent("""
     LectureCut is a tool to remove silence from videos.
@@ -313,6 +313,9 @@ def main():
   if args.invert and not args.aggressiveness:
     aggressiveness = 1
 
+  return args
+
+def create_manager():
   manager = enlighten.get_manager()
   name = manager.term.link("https://github.com/Gamer92000/LectureCut",
       "LectureCut")
@@ -321,13 +324,17 @@ def main():
       position=1,
       fill="-",
       justify=enlighten.Justify.CENTER)
+  return manager
 
+def get_automatic_name_insert():
   automatic_name_insert = "_lecturecut."
+
   if invert:
     automatic_name_insert = "_inverted" + automatic_name_insert
 
-  # if input file is a directory, process all files in it
-  if os.path.isdir(args.input):
+  return automatic_name_insert
+
+def process_files_in_dir(args, manager):
     files = sorted(os.listdir(args.input))
     files = [f for f in files if os.path.isfile(os.path.join(args.input, f))]
     files = [os.path.join(args.input, f) for f in files]
@@ -339,8 +346,8 @@ def main():
       get_file_path = lambda x: os.path.join(args.output, os.path.basename(x))
     else:
       get_file_path = lambda x: os.path.splitext(os.path.basename(x))[0] +\
-          automatic_name_insert +\
-          args.input.rsplit(x, 1)[1]
+          get_automatic_name_insert() +\
+          x.rsplit(".", 1)[1]
     for file in files:
       run(manager, {
         "file": file,
@@ -348,8 +355,15 @@ def main():
       })
       pbar.update()
 
+def main():
+  args = parse_args()
+  manager = create_manager()
+
+  if os.path.isdir(args.input):
+    process_files_in_dir(args, manager)
+
   fallback_output = args.input.rsplit(".", 1)[0] +\
-      automatic_name_insert +\
+      get_automatic_name_insert() +\
       args.input.rsplit(".", 1)[1]
 
   run(manager, {
