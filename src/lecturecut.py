@@ -180,7 +180,7 @@ def concat_segments(manager, instance):
   output = instances[instance]["output"]
   with open(f"{cache_path}list.txt", "w") as f:
     for file in sorted(os.listdir(f"{cache_path}cutSegments")):
-      f.write(f"file "cutSegments/{file}"\n")
+      f.write(f"file 'cutSegments/{file}'\n")
   total_cut_length = sum([x[1] - x[0] for x in instances[instance]["cuts"]])
   bar_total = int(total_cut_length * 1000)
   pbar = manager.counter(total=bar_total, desc="Rendering  ")
