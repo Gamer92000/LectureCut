@@ -1,6 +1,7 @@
 import socket
 import os
 from enum import Enum
+import time
 
 
 class LogMode(Enum):
@@ -14,6 +15,21 @@ class LogLevel(Enum):
   INFO = 1
   IMPORTANT = 2
 
+  def to_sting(self):
+    if self == self.DEBUG:
+      return "debug:"
+    elif self == self.INFO:
+      return "info:"
+    else:
+      return "important:"
+  
+  def to_val(self):
+    if self == self.DEBUG:
+      return 0
+    elif self == self.INFO:
+      return 1
+    else:
+      return 2
 
 log_is_initialized = False
 log_mode = None
@@ -57,6 +73,19 @@ def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO):
 
   log_is_initialized = True
   log_level = level
+
+def log_print(message, level=LogLevel.INFO, toStdOut=False):
+  if not log_is_initialized:
+    log_init()
+  if not log_level.to_val() <= level.to_val():
+    return
+  message = "{} {}".format(level.to_sting(), message)
+  if toStdOut:
+    print(message)
+  if log_mode == LogMode.FILE:
+    log_file.write("[{}] {}\n".format(time.time(), message))
+  elif log_mode == LogMode.SYSTEMD:
+    log_sock.send(bytes("LectureCut: {}".format(message), 'UTF-8'))
 
 def log_close():
   global log_is_initialized
