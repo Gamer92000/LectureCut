@@ -6,6 +6,12 @@ from threading import Thread
 
 # TODO: replace with shutil.rmtree
 def delete_directory_recursively(path, retryCounter=10):
+  """
+  Delete a directory and all its contents.
+
+  path -- The path to the directory to delete.
+  retryCounter -- The number of times to retry deleting the directory.
+  """
   if os.path.exists(path):
     for _ in range(retryCounter):
       try:
@@ -25,6 +31,12 @@ def delete_directory_recursively(path, retryCounter=10):
         time.sleep(0.1)
 
 def reader(pipe, queue):
+  """
+  Read the output of a pipe and put it in a queue.
+
+  pipe -- The pipe to read from.
+  queue -- The queue to put the output in.
+  """
   try:
     with pipe:
       for line in iter(pipe.readline, b""):
@@ -33,6 +45,12 @@ def reader(pipe, queue):
     queue.put(None)
 
 def read_progress(pbar, ffmpeg_run):
+  """
+  Read the output of a ffmpeg run and update the given progress bar.
+
+  pbar -- The progress bar to update.
+  ffmpeg_run -- The ffmpeg run to read the output from.
+  """
   q = Queue()
   Thread(target=reader, args=(ffmpeg_run.stdout, q)).start()
   Thread(target=reader, args=(ffmpeg_run.stderr, q)).start()

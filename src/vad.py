@@ -6,7 +6,9 @@ import webrtcvad
 KERN_SIZE = 30
 
 def read_audio(path):
-  """Reads the video file.
+  """
+  Reads the video file.
+  
   returns (PCM audio data, sample rate).
   """
   out, _ = (
@@ -30,10 +32,15 @@ class Frame(object):
 
 
 def frame_generator(frame_duration_ms, audio, sample_rate):
-  """Generates audio frames from PCM audio data.
+  """
+  Generates audio frames from PCM audio data.
   Takes the desired frame duration in milliseconds, the PCM data, and
   the sample rate.
   Yields Frames of the requested duration.
+
+  frame_duration_ms -- The frame duration in milliseconds.
+  audio -- The PCM data.
+  sample_rate -- The sample rate of the data.
   """
   n = int(sample_rate * (frame_duration_ms / 1000.0) * 2)
   offset = 0
@@ -84,18 +91,21 @@ def clip_gauss_kernel(kernel, side, cutoff):
   return kernel
 
 def vad_collector(sample_rate, frame_duration_ms, kernel_size, vad, frames):
-  """Filters out non-voiced audio frames.
+  """
+  Filters out non-voiced audio frames.
   Given a webrtcvad.Vad and a source of audio frames, returns a list
   of (start, end) timestamps for the voiced audio.
   Uses a Gaussian filter to smooth the probability of being voiced
   over time.
+  
   Arguments:
-  sample_rate: The audio sample rate, in Hz.
-  frame_duration_ms: The frame duration in milliseconds.
-  kernel_size: The number of frames to include in the smoothing per side.
-  vad: An instance of webrtcvad.Vad.
-  frames: a source of audio frames (sequence or generator).
-  Returns: A list of (start, end) timestamps.
+  sample_rate -- The audio sample rate, in Hz.
+  frame_duration_ms -- The frame duration in milliseconds.
+  kernel_size -- The number of frames to include in the smoothing per side.
+  vad -- An instance of webrtcvad.Vad.
+  frames -- a source of audio frames (sequence or generator).
+  
+  returns -- a list of (start, end) timestamps.
   """
   vad_frames = [(frame, vad.is_speech(frame.bytes, sample_rate))
                 for frame in frames]
@@ -141,6 +151,15 @@ def vad_collector(sample_rate, frame_duration_ms, kernel_size, vad, frames):
   return newSegments
 
 def run(file, aggressiveness, invert=False):
+  """
+  Given a file path, aggressiveness, and invert flag, returns a list of
+  (start, end) timestamps for the voiced audio.
+
+  file: path to the audio file
+  aggressiveness: aggressiveness of the VAD
+  invert: if True, returns a list of (start, end) timestamps
+          for the non-voiced audio
+  """
   audio, sample_rate = read_audio(file)
   vad = webrtcvad.Vad(aggressiveness)
   frames = frame_generator(30, audio, sample_rate)

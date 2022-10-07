@@ -25,6 +25,12 @@ CACHE_PREFIX = "./" # needs to end with a slash
 instances = {}
 
 def init_cache(instance):
+  """
+  Create a cache directory for the given instance.
+  The cache directory is used to store temporary files.
+
+  instance -- the instance id
+  """
   cache_path = CACHE_PREFIX + f"/{instance}/"
   if os.path.exists(cache_path):
     raise Exception("Cache already exists")
@@ -33,19 +39,43 @@ def init_cache(instance):
   os.mkdir(cache_path + "/cutSegments")
 
 def cleanup(instance):
+  """
+  Delete the cache directory for the given instance.
+
+  instance -- the instance id
+  """
   cache_path = CACHE_PREFIX + f"/{instance}/"
   delete_directory_recursively(cache_path)
 
 def generate_cut_list(instance):
+  """
+  Generate a list of segments that should not be cut out of the video.
+  The list is stored in the instances dictionary.
+
+  instance -- the instance id
+  """
   global instances
   file = instances[instance]["file"]
   instances[instance]["cuts"] = vad.run(file, aggressiveness, invert)
 
 def prepare_video(manager, instance):
+  """
+  Prepare the video for cutting.
+  This includes segmenting the video and analysing the segments.
+
+  manager -- the manager for the progress bars
+  instance -- the instance id
+  """
   _split_video(manager, instance)
   _analyse_segments(manager, instance)
 
 def _split_video(manager, instance):
+  """
+  Split the video into segments based on keyframes.
+
+  manager -- the manager for the progress bars
+  instance -- the instance id
+  """
   cache_path = CACHE_PREFIX + f"/{instance}/"
   file = instances[instance]["file"]
 
@@ -70,6 +100,12 @@ def _split_video(manager, instance):
   pbar.close()
 
 def _analyse_segments(manager, instance):
+  """
+  Analyse the length of each segment of the video.
+
+  manager -- the manager for the progress bars
+  instance -- the instance id
+  """
   global instances
   instances[instance]["segments"] = {}
   cache_path = CACHE_PREFIX + f"/{instance}/"
@@ -94,6 +130,12 @@ def _analyse_segments(manager, instance):
   pbar.close()
 
 def _get_video_length(pbar, videoPath):
+  """
+  Get the length of the given video in seconds.
+
+  pbar -- the progress bar
+  videoPath -- the path to the video
+  """
   video = cv2.VideoCapture(videoPath)
   fps = video.get(cv2.CAP_PROP_FPS)
   frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -101,6 +143,12 @@ def _get_video_length(pbar, videoPath):
   return frame_count / fps
 
 def transcode(manger, instance):
+  """
+  Transcode the video.
+
+  manager -- the manager for the progress bars
+  instance -- the instance id
+  """
   global instances
 
   cache_path = CACHE_PREFIX + f"/{instance}/"
@@ -112,6 +160,11 @@ def transcode(manger, instance):
       unit="segments")
 
   def _process_segment(i):
+    """
+    Process a single segment.
+
+    i -- the segment number
+    """
     # cats are segments that need to be kept
     segment = segments[i]
 
@@ -176,6 +229,12 @@ def transcode(manger, instance):
 
 
 def concat_segments(manager, instance):
+  """
+  Concatenate the segments into a single video.
+
+  manager -- the manager for the progress bars
+  instance -- the instance id
+  """
   cache_path = f"{CACHE_PREFIX}{instance}/"
   output = instances[instance]["output"]
   with open(f"{cache_path}list.txt", "w") as f:
@@ -210,6 +269,12 @@ def concat_segments(manager, instance):
   pbar.close()
 
 def run(manager, config):
+  """
+  Run the program on a single instance.
+
+  manager -- the manager for the progress bars
+  config -- the config for the instance
+  """
   global instances
 
   instance = str(uuid.uuid4())
@@ -254,6 +319,9 @@ aggressiveness = 3
 reencode = False
 
 def parse_args():
+  """
+  Parse the command line arguments.
+  """
   global invert, quality, aggressiveness, reencode
   parser = argparse.ArgumentParser(description=textwrap.dedent("""
     LectureCut is a tool to remove silence from videos.
@@ -316,6 +384,9 @@ def parse_args():
   return args
 
 def create_manager():
+  """
+  Create a manager for the progress bars.
+  """
   manager = enlighten.get_manager()
   name = manager.term.link("https://github.com/Gamer92000/LectureCut",
       "LectureCut")
@@ -327,6 +398,9 @@ def create_manager():
   return manager
 
 def get_automatic_name_insert():
+  """
+  Get the automatic name insert for the output file.
+  """
   automatic_name_insert = "_lecturecut."
 
   if invert:
@@ -356,6 +430,9 @@ def process_files_in_dir(args, manager):
       pbar.update()
 
 def main():
+  """
+  Main function.
+  """
   args = parse_args()
   manager = create_manager()
 
@@ -375,6 +452,9 @@ def main():
   print()
 
 def shotdown_cleanup():
+  """
+  Cleanup function that is called when the program is terminated.
+  """
   print()
   print("Cleaning up after unexpected exit...")
   # sleep to make sure open file handles are closed
