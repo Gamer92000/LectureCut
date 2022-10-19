@@ -2,19 +2,20 @@
 
 import argparse
 import atexit
-from itertools import takewhile
 import multiprocessing
-import cv2
-import enlighten
-import ffmpeg
 import os
 import textwrap
 import time
 import uuid
-import vad
-from joblib import Parallel, delayed
-from helper import delete_directory_recursively, read_progress
+from itertools import takewhile
 
+import cv2
+import enlighten
+import ffmpeg
+from joblib import Parallel, delayed
+
+import vad
+from helper import delete_directory_recursively, read_progress
 
 N_CORES = multiprocessing.cpu_count()
 PROCESSES = N_CORES // 4
@@ -202,24 +203,44 @@ def transcode(manger, instance):
     keep = [(x[0] - segment["start"], x[1] - segment["start"]) for x in keep]
 
     for j,trim in enumerate(keep):
-      (
-        ffmpeg
-        .input(f"{cache_path}segments/out{i:05d}.ts")
-        .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
-            f="mpegts",
-            ss=trim[0],
-            to=trim[1],
-            acodec="copy",
-            vcodec="libx264",
-            preset="fast",
-            crf=quality,
-            reset_timestamps=1,
-            force_key_frames=0)
-        .global_args("-loglevel", "error")
-        .global_args("-hide_banner")
-        .global_args("-nostdin")
-        .run()
-      )
+      # only transcode when a new keyframe needs to be calculated
+      # otherwise just cut P and B frames
+      # TODO: check if this results in a quality loss
+      #       assuming that a P frame that is kept referenced a B frame
+      #       that was cut, might result in the P frame losing its reference
+      #       and thus (to me) unknown behaviour
+      if (trim[0] == 0):
+        (
+          ffmpeg
+          .input(f"{cache_path}segments/out{i:05d}.ts")
+          .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
+              f="mpegts",
+              to=trim[1],
+              codec="copy")
+          .global_args("-loglevel", "error")
+          .global_args("-hide_banner")
+          .global_args("-nostdin")
+          .run()
+        )
+      else:
+        (
+          ffmpeg
+          .input(f"{cache_path}segments/out{i:05d}.ts")
+          .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
+              f="mpegts",
+              ss=trim[0],
+              to=trim[1],
+              acodec="copy",
+              vcodec="libx264",
+              preset="fast",
+              crf=quality,
+              reset_timestamps=1,
+              force_key_frames=0)
+          .global_args("-loglevel", "error")
+          .global_args("-hide_banner")
+          .global_args("-nostdin")
+          .run()
+        )
     pbar.update()
   Parallel(n_jobs=PROCESSES, require="sharedmem")(
       delayed(_process_segment)

@@ -1,8 +1,9 @@
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 from queue import Queue
 from threading import Thread
+
 
 # TODO: replace with shutil.rmtree
 def delete_directory_recursively(path, retryCounter=10):

@@ -1,6 +1,7 @@
+import math
+
 import cv2
 import ffmpeg
-import math
 import webrtcvad
 
 KERN_SIZE = 30

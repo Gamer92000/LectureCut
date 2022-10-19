@@ -1,10 +1,11 @@
 # MIT License
 # Simple logger with journald and file support
 
-import socket
 import os
-from enum import Enum
+import socket
 import time
+from enum import Enum
+
 
 class LogMode(Enum):
   SYSTEMD = 0
