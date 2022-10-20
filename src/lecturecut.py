@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 
+from helper import read_progress
+from itertools import takewhile
+from joblib import Parallel, delayed
+from pathlib import Path
+from shutil import rmtree
 import argparse
 import atexit
-import multiprocessing
-import os
-import textwrap
-import time
-import uuid
-from itertools import takewhile
-
 import cv2
 import enlighten
 import ffmpeg
-from joblib import Parallel, delayed
-
+import multiprocessing
+import os
+import tempfile
+import textwrap
+import time
+import uuid
 import vad
-from helper import delete_directory_recursively, read_progress
 
 N_CORES = multiprocessing.cpu_count()
 PROCESSES = N_CORES // 4
 
-# TODO: use pathlib
-CACHE_PREFIX = "./" # needs to end with a slash 
+CACHE_PREFIX = Path(tempfile.mkdtemp(prefix='LectureCut-'))
 
 instances = {}
+
+def mkdir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
 
 def init_cache(instance):
   """
@@ -32,12 +35,11 @@ def init_cache(instance):
 
   instance -- the instance id
   """
-  cache_path = CACHE_PREFIX + f"/{instance}/"
+  cache_path = CACHE_PREFIX / instance
   if os.path.exists(cache_path):
     raise Exception("Cache already exists")
-  os.mkdir(cache_path)
-  os.mkdir(cache_path + "/segments")
-  os.mkdir(cache_path + "/cutSegments")
+  mkdir(cache_path / "segments")
+  mkdir(cache_path / "cutSegments")
 
 def cleanup(instance):
   """
@@ -45,8 +47,8 @@ def cleanup(instance):
 
   instance -- the instance id
   """
-  cache_path = CACHE_PREFIX + f"/{instance}/"
-  delete_directory_recursively(cache_path)
+  cache_path = CACHE_PREFIX / instance
+  rmtree(cache_path)
 
 def generate_cut_list(instance):
   """
@@ -77,7 +79,7 @@ def _split_video(manager, instance):
   manager -- the manager for the progress bars
   instance -- the instance id
   """
-  cache_path = CACHE_PREFIX + f"/{instance}/"
+  cache_path = CACHE_PREFIX / instance
   file = instances[instance]["file"]
 
   total_input_length = _get_video_length(None, file)
@@ -87,7 +89,7 @@ def _split_video(manager, instance):
   split = (
     ffmpeg
     .input(file)
-    .output(cache_path + "segments/out%05d.ts",
+    .output(str(cache_path / "segments" / "out%05d.ts"),
         f="segment",
         c="copy",
         reset_timestamps=1)
@@ -109,17 +111,18 @@ def _analyse_segments(manager, instance):
   """
   global instances
   instances[instance]["segments"] = {}
-  cache_path = CACHE_PREFIX + f"/{instance}/"
+  cache_path = CACHE_PREFIX / instance
   
-  segments = sorted(os.listdir(cache_path + "segments"))
+  segments = sorted((cache_path / "segments").iterdir())
   pbar = manager.counter(total=len(segments),
       desc="Analysing  ",
       unit="segments")
 
-  durations = Parallel(n_jobs=PROCESSES)(
-      delayed(_get_video_length)
-      (pbar, f"{cache_path}segments/{path}")
-      for path in segments)
+  jobs = (
+    delayed(_get_video_length)(pbar, str(path))
+    for path in segments
+  )
+  durations = Parallel(n_jobs=PROCESSES)(jobs)
   # calculate start end map
   total_duration = 0
   for i, duration in enumerate(durations):
@@ -152,7 +155,7 @@ def transcode(manger, instance):
   """
   global instances
 
-  cache_path = CACHE_PREFIX + f"/{instance}/"
+  cache_path = CACHE_PREFIX / instance
   segments = instances[instance]["segments"]
   cuts = instances[instance]["cuts"]
 
@@ -160,14 +163,13 @@ def transcode(manger, instance):
       desc="Transcoding",
       unit="segments")
 
-  def _process_segment(i):
+  def _process_segment(index, segment):
     """
     Process a single segment.
 
-    i -- the segment number
+    index -- the segment number
+    segment -- the segment
     """
-    # cats are segments that need to be kept
-    segment = segments[i]
 
     # find id of first cut ending after segment start
     first_cut_id, first_cut = next((x for x in enumerate(cuts)
@@ -180,8 +182,9 @@ def transcode(manger, instance):
 
     # if completely enclosed by a cut, copy
     if first_cut[0] <= segment["start"] and first_cut[1] >= segment["end"]:
-      os.rename(f"{cache_path}segments/out{i:05d}.ts",
-          f"{cache_path}cutSegments/out{i:05d}.ts")
+      file_name = f"out{index:05d}.ts"
+      os.rename(cache_path / "segments" / file_name,
+          cache_path / "cutSegments" / file_name)
       pbar.update()
       return
 
@@ -212,8 +215,8 @@ def transcode(manger, instance):
       if (trim[0] == 0):
         (
           ffmpeg
-          .input(f"{cache_path}segments/out{i:05d}.ts")
-          .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
+            .input(str(cache_path / "segments" / f"out{index:05d}.ts"))
+            .output(str(cache_path / "cutSegments" / f"out{index:05d}_{j:03d}.ts"),
               f="mpegts",
               to=round(trim[1], 5),
               codec="copy")
@@ -225,8 +228,8 @@ def transcode(manger, instance):
       else:
         (
           ffmpeg
-          .input(f"{cache_path}segments/out{i:05d}.ts")
-          .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
+            .input(str(cache_path / "segments" / f"out{index:05d}.ts"))
+            .output(str(cache_path / "cutSegments" / f"out{index:05d}_{j:03d}.ts"),
               f="mpegts",
               ss=round(trim[0], 5),
               to=round(trim[1], 5),
@@ -242,10 +245,11 @@ def transcode(manger, instance):
           .run()
         )
     pbar.update()
-  Parallel(n_jobs=PROCESSES, require="sharedmem")(
-      delayed(_process_segment)
-      (i)
-      for i in segments)
+  jobs = (
+    delayed(_process_segment)(name, segment)
+    for name, segment in segments.items()
+  )
+  Parallel(n_jobs=PROCESSES, require="sharedmem")(jobs)
   pbar.close()
 
 
@@ -256,11 +260,15 @@ def concat_segments(manager, instance):
   manager -- the manager for the progress bars
   instance -- the instance id
   """
-  cache_path = f"{CACHE_PREFIX}{instance}/"
+  cache_path = CACHE_PREFIX / instance
   output = instances[instance]["output"]
-  with open(f"{cache_path}list.txt", "w") as f:
-    for file in sorted(os.listdir(f"{cache_path}cutSegments")):
-      f.write(f"file 'cutSegments/{file}'\n")
+
+  batch_file = cache_path / "list.txt"
+  with batch_file.open("w") as f:
+    files = sorted((cache_path / "cutSegments").iterdir())
+    for file in files:
+      f.write(f"file '{file}'\n")
+
   total_cut_length = sum([x[1] - x[0] for x in instances[instance]["cuts"]])
   bar_total = int(total_cut_length * 1000)
   pbar = manager.counter(total=bar_total, desc="Rendering  ")
@@ -278,7 +286,7 @@ def concat_segments(manager, instance):
     }
   concat = (
     ffmpeg
-    .input(f"{cache_path}list.txt", f="concat", safe=0)
+    .input(str(batch_file), f="concat", safe=0)
     .output(output, **outputargs)
     .global_args("-progress", "pipe:1")
     .global_args("-loglevel", "error")
@@ -320,7 +328,7 @@ def run(manager, config):
 
   init_cache(instance)
   status.update(stage=f"[1/4] Preparing video")
-  Parallel(n_jobs=2, require="sharedmem")([
+  Parallel(n_jobs=2, require="sharedmem")([ # TODO: keep reference to child progresses so they can be killed on shutdown cleanup
       delayed(generate_cut_list)(instance),
       delayed(prepare_video)(manager, instance)])
   status.update(stage=f"[2/4] Transcoding video")
@@ -429,24 +437,22 @@ def get_automatic_name_insert():
 
   return automatic_name_insert
 
-def process_files_in_dir(args, manager):
-    files = sorted(os.listdir(args.input))
-    files = [f for f in files if os.path.isfile(os.path.join(args.input, f))]
-    files = [os.path.join(args.input, f) for f in files]
+def process_files_in_dir(input_path, args, manager):
+    files = sorted(input_path.iterdir())
+    files = list(filter(lambda f: f.is_file(), files))
     pbar = manager.counter(total=len(files), desc="Processing ")
     get_file_path = lambda x: x
     if args.output:
-      if not os.path.isdir(args.output):
-        os.mkdir(args.output)
-      get_file_path = lambda x: os.path.join(args.output, os.path.basename(x))
+      output_path = Path(args.output)
+      if not output_path.is_dir():
+        mkdir(args.output)
+      get_file_path = lambda x: args.output / x.name
     else:
-      get_file_path = lambda x: os.path.splitext(os.path.basename(x))[0] +\
-          get_automatic_name_insert() +\
-          x.rsplit(".", 1)[1]
+      get_file_path = lambda x: (x.stem + get_automatic_name_insert() + x.suffix)
     for file in files:
       run(manager, {
-        "file": file,
-        "output": get_file_path(file)
+        "file": str(file),
+        "output": str(get_file_path(file))
       })
       pbar.update()
 
@@ -457,36 +463,36 @@ def main():
   args = parse_args()
   manager = create_manager()
 
-  if os.path.isdir(args.input):
-    process_files_in_dir(args, manager)
+  input_path = Path(args.input)
 
-  fallback_output = args.input.rsplit(".", 1)[0] +\
-      get_automatic_name_insert() +\
-      args.input.rsplit(".", 1)[1]
+  if input_path.is_dir():
+    process_files_in_dir(input_path, args, manager)
+
+  fallback_output = input_path.stem + get_automatic_name_insert() + input_path.suffix
 
   run(manager, {
-    "file": args.input,
-    "output": args.output if args.output else fallback_output
+    "file": str(args.input),
+    "output": str(args.output if args.output else fallback_output)
   })
-  
+
   manager.stop()
   print()
 
-def shotdown_cleanup():
+def shutdown_cleanup():
   """
   Cleanup function that is called when the program is terminated.
   """
   print()
   print("Cleaning up after unexpected exit...")
   # sleep to make sure open file handles are closed
-  time.sleep(3)
+  time.sleep(3) # TODO: One we have references to our children, we should just kill them
   for instance in instances:
     instances[instance]["manager"].stop()
-    cachePath = f"{CACHE_PREFIX}{instance}/"
-    if os.path.isdir(cachePath):
-      delete_directory_recursively(cachePath)
+    cache_path = CACHE_PREFIX / instance
+    if cache_path.is_dir():
+      rmtree(cache_path)
 
 if __name__ == "__main__":
-  atexit.register(shotdown_cleanup)
+  atexit.register(shutdown_cleanup)
   main()
-  atexit.unregister(shotdown_cleanup)
+  atexit.unregister(shutdown_cleanup)
