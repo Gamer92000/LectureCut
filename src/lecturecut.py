@@ -12,6 +12,7 @@ import enlighten
 import ffmpeg
 import multiprocessing
 import os
+import tempfile
 import textwrap
 import time
 import uuid
@@ -20,7 +21,7 @@ import vad
 N_CORES = multiprocessing.cpu_count()
 PROCESSES = N_CORES // 4
 
-CACHE_PREFIX = Path("cache")
+CACHE_PREFIX = Path(tempfile.mkdtemp(prefix='LectureCut-'))
 
 instances = {}
 
