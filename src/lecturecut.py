@@ -215,7 +215,7 @@ def transcode(manger, instance):
           .input(f"{cache_path}segments/out{i:05d}.ts")
           .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
               f="mpegts",
-              to=trim[1],
+              to=round(trim[1], 5),
               codec="copy")
           .global_args("-loglevel", "error")
           .global_args("-hide_banner")
@@ -228,8 +228,8 @@ def transcode(manger, instance):
           .input(f"{cache_path}segments/out{i:05d}.ts")
           .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
               f="mpegts",
-              ss=trim[0],
-              to=trim[1],
+              ss=round(trim[0], 5),
+              to=round(trim[1], 5),
               acodec="copy",
               vcodec="libx264",
               preset="fast",
