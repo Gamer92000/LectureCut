@@ -26,10 +26,6 @@ jobs:
       packages: write
 
     steps:
-      - name: Exit if not on main branch
-        if: endsWith(github.ref, 'main') == false
-        run: exit -1
-
       - name: Checkout repository
         uses: actions/checkout@v3
 
