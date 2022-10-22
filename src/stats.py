@@ -42,7 +42,7 @@ def print_stats(files, total_time):
   
   if len(files) > 1:
     table.add_row(
-      "Total",
+      "[italic]Total",
       f"{total_input_size / 1024 / 1024:.2f} MB -> {total_output_size / 1024 / 1024:.2f} MB",
       f"{total_input_length / 60:.2f} min -> {total_output_length / 60:.2f} min",
       f"{total_output_length / total_input_length * 100:.2f} %"
@@ -54,3 +54,4 @@ def print_stats(files, total_time):
   rich.print(Align(table, align="center"))
   rich.print()
   rich.print(Align(performance, align="center"))
+  rich.print()
