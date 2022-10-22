@@ -490,14 +490,12 @@ def main():
         args.input.rsplit(".", 1)[1]
 
     start = time.perf_counter()
-    progress = generate_progress_instance()
-    run(progress, {
-      "file": args.input,
-      "output": args.output
-    })
-    end = time.perf_counter()
-    
-    progress.stop()
+    with generate_progress_instance() as progress:
+      run(progress, {
+        "file": args.input,
+        "output": args.output
+      })
+      end = time.perf_counter()
 
     print_stats([(args.input, args.output)], end - start)
 
