@@ -2,4 +2,4 @@ ffmpeg-python
 webrtcvad
 opencv-python
 joblib
-enlighten
+rich>=12

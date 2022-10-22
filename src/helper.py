@@ -3,6 +3,22 @@ import time
 from pathlib import Path
 from queue import Queue
 from threading import Thread
+import cv2
+
+
+def get_video_length(videoPath, progress=None, pbar=None):
+  """
+  Get the length of the given video in seconds.
+
+  progress -- the manager for the progress bars
+  pbar -- the progress bar
+  videoPath -- the path to the video
+  """
+  video = cv2.VideoCapture(videoPath)
+  fps = video.get(cv2.CAP_PROP_FPS)
+  frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
+  if pbar: progress.update(pbar, advance=1)
+  return frame_count / fps
 
 
 # TODO: replace with shutil.rmtree
@@ -45,10 +61,11 @@ def reader(pipe, queue):
   finally:
     queue.put(None)
 
-def read_progress(pbar, ffmpeg_run):
+def read_progress(progress, pbar, ffmpeg_run):
   """
   Read the output of a ffmpeg run and update the given progress bar.
 
+  progress -- The manager that controls the progress bars.
   pbar -- The progress bar to update.
   ffmpeg_run -- The ffmpeg run to read the output from.
   """
@@ -67,6 +84,6 @@ def read_progress(pbar, ffmpeg_run):
         value = parts[1] if len(parts) > 1 else None # TODO: this might cause float(none):
         if key == "out_time_ms":
           time = max(round(float(value) / 1000000., 2), 0)
-          pbar.update(int(time * 1000) - pbar.count)
+          progress.update(pbar, advance=int(time * 1000))
         elif key == "progress" and value == "end":
-          pbar.update(pbar.total - pbar.count)
+          progress.update(pbar, completet=True)

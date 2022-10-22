@@ -9,13 +9,25 @@ import time
 import uuid
 from itertools import takewhile
 
-import cv2
-import enlighten
 import ffmpeg
 from joblib import Parallel, delayed
 
+import rich
+from rich.console import Group
+from rich.live import Live
+from rich.align import Align
+from rich.progress import (
+    MofNCompleteColumn,
+    BarColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn,
+)
+
 import vad
-from helper import delete_directory_recursively, read_progress
+from helper import delete_directory_recursively, read_progress, get_video_length
+from stats import print_stats
 
 N_CORES = multiprocessing.cpu_count()
 PROCESSES = N_CORES // 4
@@ -32,7 +44,7 @@ def init_cache(instance):
 
   instance -- the instance id
   """
-  cache_path = CACHE_PREFIX + f"/{instance}/"
+  cache_path = CACHE_PREFIX + f"{instance}/"
   if os.path.exists(cache_path):
     raise Exception("Cache already exists")
   os.mkdir(cache_path)
@@ -59,30 +71,31 @@ def generate_cut_list(instance):
   file = instances[instance]["file"]
   instances[instance]["cuts"] = vad.run(file, aggressiveness, invert)
 
-def prepare_video(manager, instance):
+def prepare_video(progress, instance):
   """
   Prepare the video for cutting.
   This includes segmenting the video and analysing the segments.
 
-  manager -- the manager for the progress bars
+  progress -- the manager for the progress bars
   instance -- the instance id
   """
-  _split_video(manager, instance)
-  _analyse_segments(manager, instance)
+  _split_video(progress, instance)
+  _analyse_segments(progress, instance)
 
-def _split_video(manager, instance):
+def _split_video(progress, instance):
   """
   Split the video into segments based on keyframes.
 
-  manager -- the manager for the progress bars
+  progress -- the manager for the progress bars
   instance -- the instance id
   """
   cache_path = CACHE_PREFIX + f"/{instance}/"
   file = instances[instance]["file"]
 
-  total_input_length = _get_video_length(None, file)
+  total_input_length = get_video_length(file)
   bar_total = int(total_input_length * 1000)
-  pbar = manager.counter(total=bar_total, desc="Segmenting ")
+
+  pbar = progress.add_task("[magenta]Segmenting", total=bar_total)
 
   split = (
     ffmpeg
@@ -97,14 +110,13 @@ def _split_video(manager, instance):
     .global_args("-nostdin")
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
-  read_progress(pbar, split)
-  pbar.close()
+  read_progress(progress, pbar, split)
 
-def _analyse_segments(manager, instance):
+def _analyse_segments(progress, instance):
   """
   Analyse the length of each segment of the video.
 
-  manager -- the manager for the progress bars
+  progress -- the manager for the progress bars
   instance -- the instance id
   """
   global instances
@@ -112,13 +124,12 @@ def _analyse_segments(manager, instance):
   cache_path = CACHE_PREFIX + f"/{instance}/"
   
   segments = sorted(os.listdir(cache_path + "segments"))
-  pbar = manager.counter(total=len(segments),
-      desc="Analysing  ",
-      unit="segments")
+
+  pbar = progress.add_task("[magenta]Analysing", total=len(segments))
 
   durations = Parallel(n_jobs=PROCESSES)(
-      delayed(_get_video_length)
-      (pbar, f"{cache_path}segments/{path}")
+      delayed(get_video_length)
+      (f"{cache_path}segments/{path}", progress, pbar)
       for path in segments)
   # calculate start end map
   total_duration = 0
@@ -128,26 +139,13 @@ def _analyse_segments(manager, instance):
       "end": total_duration + duration,
     }
     total_duration += duration
-  pbar.close()
 
-def _get_video_length(pbar, videoPath):
-  """
-  Get the length of the given video in seconds.
 
-  pbar -- the progress bar
-  videoPath -- the path to the video
-  """
-  video = cv2.VideoCapture(videoPath)
-  fps = video.get(cv2.CAP_PROP_FPS)
-  frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
-  if pbar: pbar.update()
-  return frame_count / fps
-
-def transcode(manger, instance):
+def transcode(progress, instance):
   """
   Transcode the video.
 
-  manager -- the manager for the progress bars
+  progress -- the manager for the progress bars
   instance -- the instance id
   """
   global instances
@@ -156,9 +154,7 @@ def transcode(manger, instance):
   segments = instances[instance]["segments"]
   cuts = instances[instance]["cuts"]
 
-  pbar = manger.counter(total=len(segments),
-      desc="Transcoding",
-      unit="segments")
+  pbar = progress.add_task("[magenta]Transcoding", total=len(segments))
 
   def _process_segment(i):
     """
@@ -175,14 +171,14 @@ def transcode(manger, instance):
 
     # skip segment if it ends before the current cut starts
     if first_cut == None or first_cut[0] >= segment["end"]:
-      pbar.update()
+      progress.update(pbar, advance=1)
       return
 
     # if completely enclosed by a cut, copy
     if first_cut[0] <= segment["start"] and first_cut[1] >= segment["end"]:
       os.rename(f"{cache_path}segments/out{i:05d}.ts",
           f"{cache_path}cutSegments/out{i:05d}.ts")
-      pbar.update()
+      progress.update(pbar, advance=1)
       return
 
     # find all cuts that start before segment end
@@ -241,19 +237,18 @@ def transcode(manger, instance):
           .global_args("-nostdin")
           .run()
         )
-    pbar.update()
+    progress.update(pbar, advance=1)
   Parallel(n_jobs=PROCESSES, require="sharedmem")(
       delayed(_process_segment)
       (i)
       for i in segments)
-  pbar.close()
 
 
-def concat_segments(manager, instance):
+def concat_segments(progress, instance):
   """
   Concatenate the segments into a single video.
 
-  manager -- the manager for the progress bars
+  progress -- the manager for the progress bars
   instance -- the instance id
   """
   cache_path = f"{CACHE_PREFIX}{instance}/"
@@ -263,7 +258,8 @@ def concat_segments(manager, instance):
       f.write(f"file 'cutSegments/{file}'\n")
   total_cut_length = sum([x[1] - x[0] for x in instances[instance]["cuts"]])
   bar_total = int(total_cut_length * 1000)
-  pbar = manager.counter(total=bar_total, desc="Rendering  ")
+  
+  pbar = progress.add_task("[magenta]Rendering", total=bar_total)
   outputargs = {}
   if reencode:
     outputargs = {
@@ -286,53 +282,48 @@ def concat_segments(manager, instance):
     .global_args("-nostdin")
     .run_async(pipe_stdout=True, pipe_stderr=True)
   )
-  read_progress(pbar, concat)
-  pbar.close()
+  read_progress(progress, pbar, concat)
 
-def run(manager, config):
+def generate_progress_instance():
+  return Progress(
+    TextColumn("{task.description}", justify="right"),
+    BarColumn(bar_width=None),
+    TextColumn("[progress.percentage]{task.percentage:>3.1f}%", justify="right"),
+    "•",
+    TimeRemainingColumn(),
+    "•",
+    TimeElapsedColumn(),
+    transient=True,
+  )
+
+def run(progress, config):
   """
   Run the program on a single instance.
 
-  manager -- the manager for the progress bars
+  progress -- the manager for the progress bars
   config -- the config for the instance
   """
   global instances
+
+  rich.print(f"Input:  [yellow]{config['file']}[/yellow]")
+  rich.print(f"Output: [yellow]{config['output']}[/yellow]\n")
 
   instance = str(uuid.uuid4())
   instances[instance] = {
     "file": None,
     "output": None,
-    "manager": manager,
   }
   for key in config:
     instances[instance][key] = config[key]
 
-  file_name = os.path.basename(instances[instance]["file"])
-  file_name = manager.term.orange(file_name)
-  main_format = f"Cutting {file_name}{{fill}}"+\
-      "Stage: {stage}{fill}{elapsed}"
-  status = manager.status_bar(status_format=main_format,
-                              color="bold_bright_white_on_lightslategray",
-                              justify=enlighten.Justify.CENTER,
-                              stage=f"[0/4] Initializing",
-                              autorefresh=True,
-                              min_delta=0.2)
-
   init_cache(instance)
-  status.update(stage=f"[1/4] Preparing video")
   Parallel(n_jobs=2, require="sharedmem")([
       delayed(generate_cut_list)(instance),
-      delayed(prepare_video)(manager, instance)])
-  status.update(stage=f"[2/4] Transcoding video")
-  transcode(manager, instance)
-  status.update(stage=
-      "[3/4] Rendering & Reencoding"
-      if reencode else
-      "[3/4] Rendering video")
-  concat_segments(manager, instance)
+      delayed(prepare_video)(progress, instance)])
+  transcode(progress, instance)
+  concat_segments(progress, instance)
   cleanup(instance)
-  status.update(stage=f"[4/4] Done 🎉", force=True)
-  status.close()
+
 
 invert = False
 quality = 20
@@ -404,19 +395,22 @@ def parse_args():
 
   return args
 
-def create_manager():
+def greetings():
   """
   Create a manager for the progress bars.
   """
-  manager = enlighten.get_manager()
-  name = manager.term.link("https://github.com/Gamer92000/LectureCut",
-      "LectureCut")
-  author = manager.term.link("https://github.com/Gamer92000", "Gamer92000")
-  manager.status_bar(f" {name} - Made with ❤️ by {author}! ",
-      position=1,
-      fill="-",
-      justify=enlighten.Justify.CENTER)
-  return manager
+
+  title = "██╗    ███████╗ ██████╗████████╗██╗   ██╗███████╗███████╗    ██████╗██╗  ██╗████████╗\n" + \
+          "██║    ██╔════╝██╔════╝╚══██╔══╝██║   ██║██╔══██║██╔════╝   ██╔════╝██║  ██║╚══██╔══╝\n" + \
+          "██║    █████╗  ██║        ██║   ██║   ██║██████╔╝█████╗     ██║     ██║  ██║   ██║\n" + \
+          "██║    ██╔══╝  ██║        ██║   ██║   ██║██╔══██╗██╔══╝     ██║     ██║  ██║   ██║\n" + \
+          "██████╗███████╗╚██████╗   ██║   ╚██████╔╝██║  ██║███████╗   ╚██████╗╚█████╔╝   ██║\n" + \
+          "╚═════╝╚══════╝ ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝    ╚═════╝ ╚════╝    ╚═╝"
+  title = Align(title, align="center")
+  rich.print(title)
+  subtitle = "[link=https://github.com/Gamer92000/LectureCut]Source Code[/link] - Made with ❤️ by [link=https://github.com/Gamer92000]Gamer92000[/link]"
+  subtitle = Align(subtitle, align="center")
+  rich.print(subtitle)
 
 def get_automatic_name_insert():
   """
@@ -429,59 +423,94 @@ def get_automatic_name_insert():
 
   return automatic_name_insert
 
-def process_files_in_dir(args, manager):
-    files = sorted(os.listdir(args.input))
-    files = [f for f in files if os.path.isfile(os.path.join(args.input, f))]
-    files = [os.path.join(args.input, f) for f in files]
-    pbar = manager.counter(total=len(files), desc="Processing ")
-    get_file_path = lambda x: x
-    if args.output:
-      if not os.path.isdir(args.output):
-        os.mkdir(args.output)
-      get_file_path = lambda x: os.path.join(args.output, os.path.basename(x))
-    else:
-      get_file_path = lambda x: os.path.splitext(os.path.basename(x))[0] +\
-          get_automatic_name_insert() +\
-          x.rsplit(".", 1)[1]
-    for file in files:
-      run(manager, {
-        "file": file,
-        "output": get_file_path(file)
+def process_files_in_dir(args):
+  get_file_path = lambda x: x
+  if args.output:
+    if not os.path.isdir(args.output):
+      os.mkdir(args.output)
+    get_file_path = lambda x: os.path.join(args.output, os.path.basename(x))
+  else:
+    get_file_path = lambda x: os.path.splitext(os.path.basename(x))[0] +\
+        get_automatic_name_insert() +\
+        x.rsplit(".", 1)[1]
+
+  files = sorted(os.listdir(args.input))
+  files = [f for f in files if os.path.isfile(os.path.join(args.input, f))]
+  files = [os.path.join(args.input, f) for f in files]
+  # TODO: Check if files are actually videos
+  files = [(x, get_file_path(x)) for x in files]
+  
+  file_progress = Progress(
+      "[progress.description]{task.description}",
+      BarColumn(bar_width=None),
+      MofNCompleteColumn(),
+      "•",
+      TimeElapsedColumn(),
+      transient=True,
+  )
+
+  group = Group(file_progress)
+
+  start = time.perf_counter()
+  with Live(group):
+    pbar = file_progress.add_task("[yellow]Videos", total=len(files))
+
+    for input_file, output_file in files:
+      prog = generate_progress_instance()
+      group.renderables.insert(0, prog)
+      run(prog, {
+        "file": input_file,
+        "output": output_file
       })
-      pbar.update()
+      file_progress.update(pbar, advance=1)
+      group.renderables.remove(prog)
+      rich.print(prog)
+      rich.print()
+  
+    group.renderables.remove(file_progress)
+
+  end = time.perf_counter()
+
+  print_stats(files, end - start)
 
 def main():
   """
   Main function.
   """
   args = parse_args()
-  manager = create_manager()
+  greetings()
 
   if os.path.isdir(args.input):
-    process_files_in_dir(args, manager)
+    process_files_in_dir(args)
+  else:
+    if args.output == None:
+      args.output = args.input.rsplit(".", 1)[0] +\
+        get_automatic_name_insert() +\
+        args.input.rsplit(".", 1)[1]
 
-  fallback_output = args.input.rsplit(".", 1)[0] +\
-      get_automatic_name_insert() +\
-      args.input.rsplit(".", 1)[1]
+    start = time.perf_counter()
+    progress = generate_progress_instance()
+    run(progress, {
+      "file": args.input,
+      "output": args.output
+    })
+    end = time.perf_counter()
+    
+    progress.stop()
 
-  run(manager, {
-    "file": args.input,
-    "output": args.output if args.output else fallback_output
-  })
-  
-  manager.stop()
-  print()
+    print_stats([(args.input, args.output)], end - start)
 
 def shotdown_cleanup():
   """
   Cleanup function that is called when the program is terminated.
   """
+  if (len(instances) <= 0):
+    return
   print()
   print("Cleaning up after unexpected exit...")
   # sleep to make sure open file handles are closed
   time.sleep(3)
   for instance in instances:
-    instances[instance]["manager"].stop()
     cachePath = f"{CACHE_PREFIX}{instance}/"
     if os.path.isdir(cachePath):
       delete_directory_recursively(cachePath)
