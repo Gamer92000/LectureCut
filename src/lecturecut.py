@@ -7,9 +7,7 @@ import os
 import textwrap
 import time
 import uuid
-from itertools import takewhile
 
-import ffmpeg
 from joblib import Parallel, delayed
 
 import rich
@@ -24,10 +22,14 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn,
 )
+from module_manager import CUT, get_render
 
 import vad
-from helper import delete_directory_recursively, read_progress, get_video_length
+from helper import delete_directory_recursively
 from stats import print_stats
+
+# RENDER DLL STUFF
+render = get_render()
 
 N_CORES = multiprocessing.cpu_count()
 PROCESSES = N_CORES // 4
@@ -36,20 +38,6 @@ PROCESSES = N_CORES // 4
 CACHE_PREFIX = "./" # needs to end with a slash 
 
 instances = {}
-
-def init_cache(instance):
-  """
-  Create a cache directory for the given instance.
-  The cache directory is used to store temporary files.
-
-  instance -- the instance id
-  """
-  cache_path = CACHE_PREFIX + f"{instance}/"
-  if os.path.exists(cache_path):
-    raise Exception("Cache already exists")
-  os.mkdir(cache_path)
-  os.mkdir(cache_path + "/segments")
-  os.mkdir(cache_path + "/cutSegments")
 
 def cleanup(instance):
   """
@@ -71,218 +59,33 @@ def generate_cut_list(instance):
   file = instances[instance]["file"]
   instances[instance]["cuts"] = vad.run(file, aggressiveness, invert)
 
-def prepare_video(progress, instance):
+def prepare_video(instance):
   """
   Prepare the video for cutting.
   This includes segmenting the video and analysing the segments.
 
-  progress -- the manager for the progress bars
-  instance -- the instance id
-  """
-  _split_video(progress, instance)
-  _analyse_segments(progress, instance)
-
-def _split_video(progress, instance):
-  """
-  Split the video into segments based on keyframes.
-
-  progress -- the manager for the progress bars
-  instance -- the instance id
-  """
-  cache_path = CACHE_PREFIX + f"/{instance}/"
-  file = instances[instance]["file"]
-
-  total_input_length = get_video_length(file)
-  bar_total = int(total_input_length * 1000)
-
-  pbar = progress.add_task("[magenta]Segmenting", total=bar_total)
-
-  split = (
-    ffmpeg
-    .input(file)
-    .output(cache_path + "segments/out%05d.ts",
-        f="segment",
-        c="copy",
-        reset_timestamps=1)
-    .global_args("-progress", "pipe:1")
-    .global_args("-loglevel", "error")
-    .global_args("-hide_banner")
-    .global_args("-nostdin")
-    .run_async(pipe_stdout=True, pipe_stderr=True)
-  )
-  read_progress(progress, pbar, split)
-
-def _analyse_segments(progress, instance):
-  """
-  Analyse the length of each segment of the video.
-
-  progress -- the manager for the progress bars
   instance -- the instance id
   """
   global instances
-  instances[instance]["segments"] = {}
-  cache_path = CACHE_PREFIX + f"/{instance}/"
-  
-  segments = sorted(os.listdir(cache_path + "segments"))
+  file_name = instances[instance]["file"]
+  instances[instance]["render_id"] = render.prepare(file_name.encode("utf-8"))
 
-  pbar = progress.add_task("[magenta]Analysing", total=len(segments))
-
-  durations = Parallel(n_jobs=PROCESSES)(
-      delayed(get_video_length)
-      (f"{cache_path}segments/{path}", progress, pbar)
-      for path in segments)
-  # calculate start end map
-  total_duration = 0
-  for i, duration in enumerate(durations):
-    instances[instance]["segments"][i] = {
-      "start": total_duration,
-      "end": total_duration + duration,
-    }
-    total_duration += duration
-
-
-def transcode(progress, instance):
+def transcode(instance):
   """
   Transcode the video.
 
-  progress -- the manager for the progress bars
   instance -- the instance id
   """
-  global instances
 
-  cache_path = CACHE_PREFIX + f"/{instance}/"
-  segments = instances[instance]["segments"]
-  cuts = instances[instance]["cuts"]
-
-  pbar = progress.add_task("[magenta]Transcoding", total=len(segments))
-
-  def _process_segment(i):
-    """
-    Process a single segment.
-
-    i -- the segment number
-    """
-    # cats are segments that need to be kept
-    segment = segments[i]
-
-    # find id of first cut ending after segment start
-    first_cut_id, first_cut = next((x for x in enumerate(cuts)
-        if x[1][1] > segment["start"]), (-1, None))
-
-    # skip segment if it ends before the current cut starts
-    if first_cut == None or first_cut[0] >= segment["end"]:
-      progress.update(pbar, advance=1)
-      return
-
-    # if completely enclosed by a cut, copy
-    if first_cut[0] <= segment["start"] and first_cut[1] >= segment["end"]:
-      os.rename(f"{cache_path}segments/out{i:05d}.ts",
-          f"{cache_path}cutSegments/out{i:05d}.ts")
-      progress.update(pbar, advance=1)
-      return
-
-    # find all cuts that start before segment end
-    cuts_in_segment = list(takewhile(lambda x: x[0] < segment["end"],
-        cuts[first_cut_id+1:]))
-    all_cuts = [first_cut] + cuts_in_segment
-
-    keep = []
-    for cut in all_cuts:
-      start = max(segment["start"], cut[0])
-      end = min(segment["end"], cut[1])
-      keep.append((start, end))
-
-    # filter keep list to remove segments that are too short
-    keep = [x for x in keep if x[1] - x[0] > 0.1]
-
-    # convert keep list from global time to segment time
-    keep = [(x[0] - segment["start"], x[1] - segment["start"]) for x in keep]
-
-    for j,trim in enumerate(keep):
-      # only transcode when a new keyframe needs to be calculated
-      # otherwise just cut P and B frames
-      # TODO: check if this results in a quality loss
-      #       assuming that a P frame that is kept referenced a B frame
-      #       that was cut, might result in the P frame losing its reference
-      #       and thus (to me) unknown behaviour
-      if (trim[0] == 0):
-        (
-          ffmpeg
-          .input(f"{cache_path}segments/out{i:05d}.ts")
-          .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
-              f="mpegts",
-              to=round(trim[1], 5),
-              codec="copy")
-          .global_args("-loglevel", "error")
-          .global_args("-hide_banner")
-          .global_args("-nostdin")
-          .run()
-        )
-      else:
-        (
-          ffmpeg
-          .input(f"{cache_path}segments/out{i:05d}.ts")
-          .output(f"{cache_path}cutSegments/out{i:05d}_{j:03d}.ts",
-              f="mpegts",
-              ss=round(trim[0], 5),
-              to=round(trim[1], 5),
-              acodec="copy",
-              vcodec="libx264",
-              preset="fast",
-              crf=quality,
-              reset_timestamps=1,
-              force_key_frames=0)
-          .global_args("-loglevel", "error")
-          .global_args("-hide_banner")
-          .global_args("-nostdin")
-          .run()
-        )
-    progress.update(pbar, advance=1)
-  Parallel(n_jobs=PROCESSES, require="sharedmem")(
-      delayed(_process_segment)
-      (i)
-      for i in segments)
-
-
-def concat_segments(progress, instance):
-  """
-  Concatenate the segments into a single video.
-
-  progress -- the manager for the progress bars
-  instance -- the instance id
-  """
-  cache_path = f"{CACHE_PREFIX}{instance}/"
+  process = instances[instance]["render_id"]
+  num_cuts = len(instances[instance]["cuts"])
+  cuts = (CUT * num_cuts)()
+  for i in range(num_cuts):
+    cuts[i].start = instances[instance]["cuts"][i][0]
+    cuts[i].end = instances[instance]["cuts"][i][1]
   output = instances[instance]["output"]
-  with open(f"{cache_path}list.txt", "w") as f:
-    for file in sorted(os.listdir(f"{cache_path}cutSegments")):
-      f.write(f"file 'cutSegments/{file}'\n")
-  total_cut_length = sum([x[1] - x[0] for x in instances[instance]["cuts"]])
-  bar_total = int(total_cut_length * 1000)
-  
-  pbar = progress.add_task("[magenta]Rendering", total=bar_total)
-  outputargs = {}
-  if reencode:
-    outputargs = {
-      "vcodec": "libx264",
-      "preset": "fast",
-      "crf": quality,
-      "acodec": "aac",
-    }
-  else:
-    outputargs = {
-      "c": "copy",
-    }
-  concat = (
-    ffmpeg
-    .input(f"{cache_path}list.txt", f="concat", safe=0)
-    .output(output, **outputargs)
-    .global_args("-progress", "pipe:1")
-    .global_args("-loglevel", "error")
-    .global_args("-hide_banner")
-    .global_args("-nostdin")
-    .run_async(pipe_stdout=True, pipe_stderr=True)
-  )
-  read_progress(progress, pbar, concat)
+  render.render(process, num_cuts, cuts, output.encode("utf-8"))
+
 
 def generate_progress_instance():
   return Progress(
@@ -296,7 +99,7 @@ def generate_progress_instance():
     transient=True,
   )
 
-def run(progress, config):
+def run(config):
   """
   Run the program on a single instance.
 
@@ -316,12 +119,10 @@ def run(progress, config):
   for key in config:
     instances[instance][key] = config[key]
 
-  init_cache(instance)
   Parallel(n_jobs=2, require="sharedmem")([
       delayed(generate_cut_list)(instance),
-      delayed(prepare_video)(progress, instance)])
-  transcode(progress, instance)
-  concat_segments(progress, instance)
+      delayed(prepare_video)(instance)])
+  transcode(instance)
   cleanup(instance)
 
 
@@ -459,7 +260,7 @@ def process_files_in_dir(args):
     for input_file, output_file in files:
       prog = generate_progress_instance()
       group.renderables.insert(0, prog)
-      run(prog, {
+      run({
         "file": input_file,
         "output": output_file
       })
@@ -495,12 +296,11 @@ def main():
         args.input.rsplit(".", 1)[1]
 
     start = time.perf_counter()
-    with generate_progress_instance() as progress:
-      run(progress, {
-        "file": args.input,
-        "output": args.output
-      })
-      end = time.perf_counter()
+    run({
+      "file": args.input,
+      "output": args.output
+    })
+    end = time.perf_counter()
 
     print_stats([(args.input, args.output)], end - start)
 
