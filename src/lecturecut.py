@@ -481,6 +481,11 @@ def main():
   args = parse_args()
   greetings()
 
+  # because windows is seemingly designed by a 5 year old
+  # we need to replace trailing double quotes with a backslash
+  # ( see https://bugs.python.org/msg364246 )
+  args.input = args.input.replace('"', '\\')
+
   if os.path.isdir(args.input):
     process_files_in_dir(args)
   else:
@@ -505,8 +510,8 @@ def shotdown_cleanup():
   """
   if (len(instances) <= 0):
     return
-  print()
-  print("Cleaning up after unexpected exit...")
+  rich.print()
+  rich.print("[red]Cleaning up after unexpected exit...")
   # sleep to make sure open file handles are closed
   time.sleep(3)
   for instance in instances:
