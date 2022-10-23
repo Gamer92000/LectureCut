@@ -1,7 +1,8 @@
-import os
-import time
+from ctypes import CFUNCTYPE, WINFUNCTYPE, c_char_p, c_double
 import cv2
+import os
 
+FUNCTYPE = WINFUNCTYPE if os.name == "nt" else CFUNCTYPE
 
 def get_video_length(videoPath):
   """
@@ -17,42 +18,17 @@ def get_video_length(videoPath):
   return frame_count / fps
 
 
-# TODO: replace with shutil.rmtree
-def delete_directory_recursively(path, retryCounter=10):
+def get_progress_callback(progress, ptypes):
   """
-  Delete a directory and all its contents.
+  Generate a c callback to get progress updates.
 
-  path -- The path to the directory to delete.
-  retryCounter -- The number of times to retry deleting the directory.
+  progress -- the manager for the progress bars
+  ptypes -- a map of existing progress types
   """
-  if os.path.exists(path):
-    for _ in range(retryCounter):
-      try:
-        for filename in os.listdir(path):
-          if os.path.isdir(path + filename):
-            delete_directory_recursively(path + filename + "/")
-          else:
-            for _ in range(retryCounter):
-              try:
-                os.remove(path + filename)
-                break
-              except:
-                time.sleep(0.1)
-        os.rmdir(path)
-        break
-      except:
-        time.sleep(0.1)
+  @FUNCTYPE(None, c_char_p, c_double)
+  def progress_callback(ptype, delta):
+    if ptype not in ptypes:
+      ptypes[ptype] = progress.add_task(str(ptype, "utf-8"), total=100)
+    progress.update(ptypes[ptype], advance=delta)
 
-def reader(pipe, queue):
-  """
-  Read the output of a pipe and put it in a queue.
-
-  pipe -- The pipe to read from.
-  queue -- The queue to put the output in.
-  """
-  try:
-    with pipe:
-      for line in iter(pipe.readline, b""):
-        queue.put((pipe, line))
-  finally:
-    queue.put(None)
+  return progress_callback

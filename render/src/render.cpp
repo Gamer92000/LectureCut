@@ -1,5 +1,6 @@
 #include "render.h"
 #include "helper.h"
+#include "definitions.h"
 
 #include <ctime>
 #include <map>
@@ -30,12 +31,24 @@ std::map<int, std::vector<std::tuple<double, double>>> instance_segment_data;
 std::filesystem::path tmp_path = std::filesystem::temp_directory_path();
 std::filesystem::path cache_prefix = tmp_path / "LectureCut" / "Render";
 
-void init()
+std::string log_level = DEFAULT_FFMPEG_LOG_LEVEL;
+
+const char* version()
 {
+  return VERSION;
+}
+
+void init(const char* ffmpeg_log_level)
+{
+  log_level = ffmpeg_log_level;
   std::srand((unsigned int) std::time(nullptr));
 }
 
-void internal_prepare(const std::string file, int id)
+void internal_prepare(
+  const std::string file,
+  int id,
+  void (*progress)(const char*, double)
+)
 {
   // lock the mutex for this process
   std::lock_guard lock(GetMutexForProcess(id));
@@ -47,7 +60,7 @@ void internal_prepare(const std::string file, int id)
   // use ffmpeg to split the video into segments
   // segment at every keyframe'
   // output ts files to the instances cache folder
-  std::string command = "ffmpeg -i \"" + std::string(file) + "\" -c copy -f segment -reset_timestamps 1 -loglevel error -hide_banner -nostdin \"" + (segment_path / "out%05d.ts").string() + "\"";
+  std::string command = "ffmpeg -i \"" + std::string(file) + "\" -c copy -f segment -reset_timestamps 1 -loglevel " + log_level + " -hide_banner -nostdin \"" + (segment_path / "out%05d.ts").string() + "\"";
 
   // execute the command
   exec(command.c_str());
@@ -68,15 +81,17 @@ void internal_prepare(const std::string file, int id)
   std::vector<double> segment_length;
   segment_length.resize(segments.size());
   
+  const double progress_delta = 100.0 / segments.size();
+
   #pragma omp parallel for num_threads(omp_get_num_procs() / 4)
   for (int i = 0; i < segments.size(); i++)
   {
     auto &entry = segments[i];
     // get frame count
-    std::string command = "ffprobe -v error -count_packets -select_streams v:0 -show_entries stream=nb_read_packets -of csv=p=0 \"" + entry.path().string() + "\"";
+    std::string command = "ffprobe -v " + log_level + " -count_packets -select_streams v:0 -show_entries stream=nb_read_packets -of csv=p=0 \"" + entry.path().string() + "\"";
     const int packets = std::stoi(exec(command.c_str()));
     // get frame rate
-    command = "ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 \"" + entry.path().string() + "\"";
+    command = "ffprobe -v " + log_level + " -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 \"" + entry.path().string() + "\"";
     const std::string frame_rate_string = exec(command.c_str()); // has the form "30/1"
     const int frame_rate_numerator = std::stoi(frame_rate_string.substr(0, frame_rate_string.find('/')));
     const int frame_rate_denominator = std::stoi(frame_rate_string.substr(frame_rate_string.find('/') + 1));
@@ -85,6 +100,7 @@ void internal_prepare(const std::string file, int id)
     const double duration = packets / frame_rate;
     // add to segment_length
     segment_length[i] = duration;
+    progress("Analysing", progress_delta);
   }
 
   std::vector<std::tuple<double, double>> instance_data;
@@ -99,7 +115,10 @@ void internal_prepare(const std::string file, int id)
   // unlock the mutex for this process (automatically done by the destructor)
 }
 
-int prepare(const char *file)
+int prepare(
+  const char *file,
+  void (*progress)(const char*, double)
+)
 {
   // generate a random ID that will be used to identify the render
   // this is used to prevent the render from being overwritten by another
@@ -110,13 +129,19 @@ int prepare(const char *file)
   std::string file_copy = std::string(file);
 
   // start a thread that will load the file and segment it
-  std::thread t(internal_prepare, file_copy, id);
+  std::thread t(internal_prepare, file_copy, id, progress);
   t.detach();
 
   return id;
 }
 
-void render(int process, long num_cuts, cut* cuts, const char *output)
+void render(
+  int process,
+  const char *output,
+  cut_list cuts,
+  int quality,
+  void (*progress)(const char*, double)
+)
 {
   // wait until the mutex for this process is unlocked
   std::lock_guard lock(GetMutexForProcess(process));
@@ -138,6 +163,8 @@ void render(int process, long num_cuts, cut* cuts, const char *output)
     return a.path().filename().string() < b.path().filename().string();
   });
 
+  const double progress_delta = 100.0 / segments.size();
+
   // iterate over all segments in the cache
   #pragma omp parallel for num_threads(omp_get_num_procs() / 4)
   for (int i = 0; i < segments.size(); i++)
@@ -150,12 +177,12 @@ void render(int process, long num_cuts, cut* cuts, const char *output)
     // find id of first cut ending after segment start
     int first_cut_id = -1;
     std::tuple<double, double> first_cut;
-    for (int j = 0; j < num_cuts; j++)
+    for (int j = 0; j < cuts.num_cuts; j++)
     {
-      if (cuts[j].end > start)
+      if (cuts.cuts[j].end > start)
       {
         first_cut_id = j;
-        first_cut = std::make_tuple(cuts[j].start, cuts[j].end);
+        first_cut = std::make_tuple(cuts.cuts[j].start, cuts.cuts[j].end);
         break;
       }
     }
@@ -163,6 +190,7 @@ void render(int process, long num_cuts, cut* cuts, const char *output)
     // skip segment if it ends before the current cut starts
     if (first_cut_id == -1 || end <= std::get<0>(first_cut))
     {
+      progress("Transcoding", progress_delta);
       continue;
     }
 
@@ -170,15 +198,16 @@ void render(int process, long num_cuts, cut* cuts, const char *output)
     if (start >= std::get<0>(first_cut) && end <= std::get<1>(first_cut))
     {
       std::filesystem::rename(entry.path(), cut_path / entry.path().filename());
+      progress("Transcoding", progress_delta);
       continue;
     }
 
     std::vector<cut> cuts_in_segment;
     // find all cuts that start before segment end
     // only look at cuts with an id >= first_cut_id
-    for (int j = first_cut_id; j < num_cuts && cuts[j].start < end; j++)
+    for (int j = first_cut_id; j < cuts.num_cuts && cuts.cuts[j].start < end; j++)
     {
-      cuts_in_segment.push_back(cuts[j]);
+      cuts_in_segment.push_back(cuts.cuts[j]);
     }
 
     // generate a keep list
@@ -213,12 +242,13 @@ void render(int process, long num_cuts, cut* cuts, const char *output)
         command += " -to " + std::to_string(cut.end) + " -c copy \"" + (cut_path / file_name).string() + "\"";
       }
       else {
-        command += " -ss " + std::to_string(cut.start) + " -to " + std::to_string(cut.end) + " -acodec copy -vcodec libx264 -preset fast -crf 20 -reset_timestamps 1 -force_key_frames 0 \"" + (cut_path / file_name).string() + "\"";
+        command += " -ss " + std::to_string(cut.start) + " -to " + std::to_string(cut.end) + " -acodec copy -vcodec libx264 -preset fast -crf " + std::to_string(quality) + " -reset_timestamps 1 -force_key_frames 0 \"" + (cut_path / file_name).string() + "\"";
       }
-      command += " -loglevel error -hide_banner -nostdin";
+      command += " -loglevel " + log_level + " -hide_banner -nostdin";
 
       exec(command.c_str());
     }
+    progress("Transcoding", progress_delta);
   }
 
   std::vector<std::filesystem::directory_entry> cut_files;
@@ -240,7 +270,7 @@ void render(int process, long num_cuts, cut* cuts, const char *output)
   }
 
   // concatenate all segments in the cut folder
-  std::string command = "ffmpeg -f concat -safe 0 -i " + (cache_path / "concat.txt").string() + " -c copy \"" + output + "\" -loglevel error -hide_banner -nostdin";
+  std::string command = "ffmpeg -f concat -safe 0 -i " + (cache_path / "concat.txt").string() + " -c copy \"" + output + "\" -loglevel " + log_level + " -hide_banner -nostdin";
 
   exec(command.c_str());
 

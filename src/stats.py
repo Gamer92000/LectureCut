@@ -11,7 +11,7 @@ def print_stats(files, total_time):
   input_files -- The input files.
   output_files -- The output files.
   """
-  table = Table(title="File Stats")
+  table = Table(title="File Stats", title_style="white italic")
 
   table.add_column("Input File", justify="left", style="yellow")
   table.add_column("Size Changes", justify="right", style="plum4")

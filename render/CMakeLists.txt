@@ -4,8 +4,9 @@ set (CMAKE_CXX_STANDARD 20)
 
 project (render)
 
-set (sources src/render.cpp)
 find_package(Threads REQUIRED)
+
+set (sources src/render.cpp)
 
 add_library (${PROJECT_NAME} SHARED ${sources})
 

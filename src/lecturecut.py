@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import atexit
 import multiprocessing
 import os
 import textwrap
@@ -22,33 +21,21 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn,
 )
-from module_manager import CUT, get_render
+from helper import get_progress_callback
+from module_manager import get_generator, get_render
 
-import vad
-from helper import delete_directory_recursively
 from stats import print_stats
 
 # RENDER DLL STUFF
 render = get_render()
+generator = get_generator()
 
 N_CORES = multiprocessing.cpu_count()
 PROCESSES = N_CORES // 4
 
-# TODO: use pathlib
-CACHE_PREFIX = "./" # needs to end with a slash 
-
 instances = {}
 
-def cleanup(instance):
-  """
-  Delete the cache directory for the given instance.
-
-  instance -- the instance id
-  """
-  cache_path = CACHE_PREFIX + f"/{instance}/"
-  delete_directory_recursively(cache_path)
-
-def generate_cut_list(instance):
+def generate_cut_list(progress, ptypes, instance):
   """
   Generate a list of segments that should not be cut out of the video.
   The list is stored in the instances dictionary.
@@ -57,9 +44,11 @@ def generate_cut_list(instance):
   """
   global instances
   file = instances[instance]["file"]
-  instances[instance]["cuts"] = vad.run(file, aggressiveness, invert)
+  callback = get_progress_callback(progress, ptypes)
+  cut_list = generator.generate(file.encode("utf-8"), callback)
+  instances[instance]["cut_list"] = cut_list
 
-def prepare_video(instance):
+def prepare_video(progress, ptypes, instance):
   """
   Prepare the video for cutting.
   This includes segmenting the video and analysing the segments.
@@ -68,24 +57,26 @@ def prepare_video(instance):
   """
   global instances
   file_name = instances[instance]["file"]
-  instances[instance]["render_id"] = render.prepare(file_name.encode("utf-8"))
+  callback = get_progress_callback(progress, ptypes)
+  instances[instance]["render_id"] = render.prepare(file_name.encode("utf-8"), callback)
 
-def transcode(instance):
+def transcode(progress, ptypes, instance):
   """
   Transcode the video.
 
   instance -- the instance id
   """
-
   process = instances[instance]["render_id"]
-  num_cuts = len(instances[instance]["cuts"])
-  cuts = (CUT * num_cuts)()
-  for i in range(num_cuts):
-    cuts[i].start = instances[instance]["cuts"][i][0]
-    cuts[i].end = instances[instance]["cuts"][i][1]
+  cut_list = instances[instance]["cut_list"]
   output = instances[instance]["output"]
-  render.render(process, num_cuts, cuts, output.encode("utf-8"))
-
+  callback = get_progress_callback(progress, ptypes)
+  render.render(
+      process,
+      output.encode("utf-8"),
+      cut_list,
+      quality,
+      callback
+  )
 
 def generate_progress_instance():
   return Progress(
@@ -99,7 +90,7 @@ def generate_progress_instance():
     transient=True,
   )
 
-def run(config):
+def run(progress, config):
   """
   Run the program on a single instance.
 
@@ -119,11 +110,15 @@ def run(config):
   for key in config:
     instances[instance][key] = config[key]
 
+  ptypes = {}
+
+  rich.print("[green]1/3[/green] Preparing video")
   Parallel(n_jobs=2, require="sharedmem")([
-      delayed(generate_cut_list)(instance),
-      delayed(prepare_video)(instance)])
-  transcode(instance)
-  cleanup(instance)
+      delayed(generate_cut_list)(progress, ptypes, instance),
+      delayed(prepare_video)(progress, ptypes, instance)])
+  rich.print("[green]2/3[/green] Transcoding video")
+  transcode(progress, ptypes, instance)
+  rich.print("[green]3/3[/green] Cleaning up")
 
 
 invert = False
@@ -260,7 +255,7 @@ def process_files_in_dir(args):
     for input_file, output_file in files:
       prog = generate_progress_instance()
       group.renderables.insert(0, prog)
-      run({
+      run(prog, {
         "file": input_file,
         "output": output_file
       })
@@ -296,30 +291,14 @@ def main():
         args.input.rsplit(".", 1)[1]
 
     start = time.perf_counter()
-    run({
-      "file": args.input,
-      "output": args.output
-    })
+    with generate_progress_instance() as progress:
+      run(progress, {
+        "file": args.input,
+        "output": args.output
+      })
     end = time.perf_counter()
 
     print_stats([(args.input, args.output)], end - start)
 
-def shotdown_cleanup():
-  """
-  Cleanup function that is called when the program is terminated.
-  """
-  if (len(instances) <= 0):
-    return
-  rich.print()
-  rich.print("[red]Cleaning up after unexpected exit...")
-  # sleep to make sure open file handles are closed
-  time.sleep(3)
-  for instance in instances:
-    cachePath = f"{CACHE_PREFIX}{instance}/"
-    if os.path.isdir(cachePath):
-      delete_directory_recursively(cachePath)
-
 if __name__ == "__main__":
-  atexit.register(shotdown_cleanup)
   main()
-  atexit.unregister(shotdown_cleanup)
