@@ -5,6 +5,7 @@ import os
 import socket
 import time
 from enum import Enum
+import pathlib
 
 
 class LogMode(Enum):
@@ -25,7 +26,7 @@ log_is_initialized = False
 log_mode = None
 log_sock = None
 log_file = None
-log_level = None
+log_level = LogLevel.INFO
 log_to_std_out = False
 
 def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO, logToStdOut=False):
@@ -39,7 +40,7 @@ def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO, logToStdOut=
   ----------
   mode : LogMode
     AUTO, SYSTEMD : Try to write to journald or write to file if journald is unavailable.
-    FILE : Write to file. The old logfile is overwritten. (Default path: `~/.local/var/log/LectureCut/log.txt` or `%LOCALAPPDATA%\LectureCut\log.txt`)
+    FILE : Write to file. The old logfile is overwritten. (Default path: `~/.local/var/log/LectureCut/log.txt` or `%LOCALAPPDATA%\\LectureCut\\log.txt`)
   log_path : Path
     Path of the log file in FILE mode. Ignored if journald is used.
   level : LogLevel
@@ -69,13 +70,13 @@ def log_init(mode=LogMode.AUTO, log_path=None, level=LogLevel.INFO, logToStdOut=
       # set default path
       if log_path == None:
         if os.name == "posix":
-          log_path = os.path.join(os.path.expanduser("~"), ".local", "var", "log", "LectureCut", "log.txt")
+          log_path = pathlib.Path.home() / ".local/var/log/LectureCut/log.txt"
         else:
-          log_path = os.path.join(os.getenv("%LOCALAPPDATA%"), "LectureCut", "log.txt") # TODO test with windows
+          log_path = pathlib.Path.home() / "AppData/Local/LectureCut/log.txt"
       
-        if not os.path.exists(log_path):
-          log_dir, _ = os.path.split(log_path)
-          os.makedirs(log_dir, exist_ok=True)
+        if not log_path.exists():
+          log_path.parent.mkdir(parents=True, exist_ok=True)
+          log_path.touch()
         log_file = open(log_path, "w")
         log_mode = LogMode.FILE
     except:
@@ -113,8 +114,12 @@ def log_print(message, level=LogLevel.INFO, toStdOut=False):
   if toStdOut or log_to_std_out:
     print(message)
   if log_mode == LogMode.FILE:
+    if not log_file or log_file.closed:
+      return
     log_file.write("[{}] {}\n".format(time.time(), message))
   elif log_mode == LogMode.SYSTEMD:
+    if not log_sock or log_sock.closed:
+      return
     log_sock.send(bytes("LectureCut: {}".format(message), 'UTF-8'))
 
 def log_close():
@@ -128,9 +133,9 @@ def log_close():
     return
 
   # close sockets or file handles
-  if log_mode == LogMode.SYSTEMD:
+  if log_mode == LogMode.SYSTEMD and log_sock and not log_sock.closed:
     log_sock.close()
-  else:
+  elif log_mode == LogMode.FILE and log_file and not log_file.closed:
     log_file.close()
 
-  log_is_initialized == False
+  log_is_initialized = False
