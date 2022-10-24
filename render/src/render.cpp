@@ -127,16 +127,16 @@ const char *prepare(
   // generate a random ID that will be used to identify the render
   // this is used to prevent the render from being overwritten by another
   // render with the same name
-  std::string id = uuid::generate_uuid_v4();
+  const char *id = uuid::generate_uuid_v4();
 
   // make sure file is not destroyed before the thread is done
   std::string file_copy = std::string(file);
 
   // start a thread that will load the file and segment it
-  std::thread t(internal_prepare, file_copy, id, progress);
+  std::thread t(internal_prepare, file_copy, std::string(id), progress);
   t.detach();
 
-  return id.c_str();
+  return id;
 }
 
 void render(

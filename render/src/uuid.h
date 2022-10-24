@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <cstring>
 
 namespace uuid {
   static std::random_device              rd;
@@ -35,8 +36,15 @@ namespace uuid {
         ss << dis(gen);
     };
 
-    const char *uuid = ss.str().c_str();
+    std::string uuid = ss.str();
 
-    return uuid;
+    char *cstr = new char[uuid.length() + 1];
+    #ifdef _WIN32
+    strcpy_s(cstr, uuid.length() + 1, uuid.c_str());
+    #else
+    strcpy(cstr, uuid.c_str());
+    #endif
+
+    return cstr;
   }
 }
