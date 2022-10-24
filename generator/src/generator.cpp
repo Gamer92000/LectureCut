@@ -30,6 +30,7 @@ void init(const char* ffmpeg_log_level) {
 
 cut_list generate(
   const char *file,
+  bool invert,
   progress_callback* progress
 )
 {
@@ -57,6 +58,8 @@ cut_list generate(
   int16_t buffer[160];
   int result;
 
+  long total_video_length = 0;
+
   while (true) {
     fread(buffer, sizeof(int16_t), 160, pcm_file);
     if (feof(pcm_file)) {
@@ -76,6 +79,7 @@ cut_list generate(
     }
 
     current_cut.end += 0.01;
+    total_video_length += 0.01;
   }
 
   if (current_cut.start != 0) {
@@ -87,6 +91,27 @@ cut_list generate(
   fclose(pcm_file);
 
   std::filesystem::remove_all(cache_path);
+
+  // ======
+  // INVERT
+  // ======
+
+  if (invert) {
+    // create a list of cuts that are the inverse of the cuts
+    std::vector<cut> inverse_cuts;
+    cut inverse_cut;
+    inverse_cut.start = 0;
+    inverse_cut.end = 0;
+    for (size_t i = 0; i < cuts.size(); i++) {
+      inverse_cut.end = cuts[i].start;
+      inverse_cuts.push_back(inverse_cut);
+      inverse_cut.start = cuts[i].end;
+    }
+    inverse_cut.end = total_video_length;
+    inverse_cuts.push_back(inverse_cut);
+
+    cuts = inverse_cuts;
+  }
 
   // ===========
   // FILTER CUTS

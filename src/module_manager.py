@@ -1,4 +1,4 @@
-from ctypes import CDLL, CFUNCTYPE, Structure, c_double, c_long, c_int, c_char_p, POINTER
+from ctypes import CDLL, CFUNCTYPE, Structure, c_double, c_long, c_int, c_char_p, POINTER, c_bool
 import pathlib
 import os
 import rich
@@ -26,8 +26,6 @@ def get_render():
   render.render.argtypes = [c_char_p, c_char_p, CUT_LIST, c_int, CFUNCTYPE(None, c_char_p, c_double)]
 
   render.init("quiet".encode("utf-8"))
-  rich.print(f"Using render version [yellow]{render.version().decode('utf-8')}[/yellow]")
-
   return render
 
 def get_generator():
@@ -38,10 +36,12 @@ def get_generator():
 
   generator.init.argtypes = [c_char_p]
 
-  generator.generate.argtypes = [c_char_p, CFUNCTYPE(None, c_char_p, c_double)]
+  generator.generate.argtypes = [
+    c_char_p,
+    c_bool,
+    CFUNCTYPE(None, c_char_p, c_double)
+  ]
   generator.generate.restype = CUT_LIST
 
   generator.init("quiet".encode("utf-8"))
-  rich.print(f"Using generator version [yellow]{generator.version().decode('utf-8')}[/yellow]")
-
   return generator

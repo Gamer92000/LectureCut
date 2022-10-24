@@ -48,7 +48,7 @@ def generate_cut_list(progress, ptypes, instance):
   file = instances[instance]["file"]
   callback = get_progress_callback(progress, ptypes)
   dont_fucking_garbage_collect_these_things.append(callback)
-  cut_list = generator.generate(file.encode("utf-8"), callback)
+  cut_list = generator.generate(file.encode("utf-8"), invert, callback)
   instances[instance]["cut_list"] = cut_list
 
 def prepare_video(progress, ptypes, instance):
@@ -118,14 +118,10 @@ def run(progress, config):
 
   ptypes = {}
 
-  # rich.print("[green]1/3[/green] Preparing video")
   Parallel(n_jobs=2, require="sharedmem")([
       delayed(generate_cut_list)(progress, ptypes, instance),
       delayed(prepare_video)(progress, ptypes, instance)])
-  # rich.print("[green]2/3[/green] Transcoding video")
   transcode(progress, ptypes, instance)
-  # rich.print("[green]3/3[/green] Cleaning up")
-
 
 invert = False
 quality = 20
@@ -212,6 +208,11 @@ def greetings():
   title = Align(title, align="center")
   rich.print(title)
   subtitle = "[link=https://github.com/Gamer92000/LectureCut]Source Code[/link] - Made with ❤️ by [link=https://github.com/Gamer92000]Gamer92000[/link]"
+  render_version = f"Render [yellow]{render.version().decode('utf-8')}[/yellow]"
+  generator_version = f"Generator [yellow]{generator.version().decode('utf-8')}[/yellow]"
+  version = f"{render_version} | {generator_version}"
+  version = version.rjust(79)
+  subtitle = f"{subtitle}{version}"
   subtitle = Align(subtitle, align="center")
   rich.print(subtitle)
 

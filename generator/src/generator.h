@@ -34,7 +34,11 @@ extern "C" {
   // takes the given file and converts it to pcm audio
   // the audio is then processed by webrtcvad to
   // determine the speech segments
-  cut_list EXPORT generate(const char *file, progress_callback* progress);
+  cut_list EXPORT generate(
+    const char *file,
+    bool invert,
+    progress_callback* progress
+  );
 
 #ifdef __cplusplus
 }
