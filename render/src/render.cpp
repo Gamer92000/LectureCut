@@ -1,8 +1,10 @@
+// local
 #include "render.h"
 #include "helper.h"
 #include "definitions.h"
+#include "uuid.h"
 
-#include <ctime>
+// std
 #include <map>
 #include <mutex>
 #include <filesystem>
@@ -13,12 +15,13 @@
 #include <cstring>
 #include <fstream>
 #include <omp.h>
+#include <system_error>
 
 
 // make sure render is only started after prepare is done for a given file
 std::mutex process_map_mutex;
-std::map<int, std::mutex> processes;
-std::mutex& GetMutexForProcess(const int process)
+std::map<std::string, std::mutex> processes;
+std::mutex& GetMutexForProcess(const std::string process)
 {
   std::lock_guard lock(process_map_mutex);
   // (creates a new mutex if it doesn't exist yet)
@@ -26,7 +29,7 @@ std::mutex& GetMutexForProcess(const int process)
   return mutex;
 }
 
-std::map<int, std::vector<std::tuple<double, double>>> instance_segment_data;
+std::map<std::string, std::vector<std::tuple<double, double>>> instance_segment_data;
 
 std::filesystem::path tmp_path = std::filesystem::temp_directory_path();
 std::filesystem::path cache_prefix = tmp_path / "LectureCut" / "Render";
@@ -41,20 +44,19 @@ const char* version()
 void init(const char* ffmpeg_log_level)
 {
   log_level = ffmpeg_log_level;
-  std::srand((unsigned int) std::time(nullptr));
 }
 
 void internal_prepare(
   const std::string file,
-  int id,
-  void (*progress)(const char*, double)
+  const std::string process,
+  progress_callback *progress
 )
 {
   // lock the mutex for this process
-  std::lock_guard lock(GetMutexForProcess(id));
+  std::lock_guard lock(GetMutexForProcess(process));
 
   // create the instances cache folder
-  std::filesystem::path segment_path = cache_prefix / std::to_string(id) / "segments";
+  std::filesystem::path segment_path = cache_prefix / process / "segments";
   std::filesystem::create_directories(segment_path);
 
   // use ffmpeg to split the video into segments
@@ -102,6 +104,8 @@ void internal_prepare(
     segment_length[i] = duration;
     progress("Analysing", progress_delta);
   }
+  // Set progress to 100%
+  progress("Analysing", -1);
 
   std::vector<std::tuple<double, double>> instance_data;
   double start = 0;
@@ -110,20 +114,20 @@ void internal_prepare(
     instance_data.push_back(std::make_tuple(start, start + length));
     start += length;
   }
-  instance_segment_data[id] = instance_data;
+  instance_segment_data[process] = instance_data;
 
   // unlock the mutex for this process (automatically done by the destructor)
 }
 
-int prepare(
+const char *prepare(
   const char *file,
-  void (*progress)(const char*, double)
+  progress_callback *progress
 )
 {
   // generate a random ID that will be used to identify the render
   // this is used to prevent the render from being overwritten by another
   // render with the same name
-  const int id = std::rand();
+  std::string id = uuid::generate_uuid_v4();
 
   // make sure file is not destroyed before the thread is done
   std::string file_copy = std::string(file);
@@ -132,21 +136,21 @@ int prepare(
   std::thread t(internal_prepare, file_copy, id, progress);
   t.detach();
 
-  return id;
+  return id.c_str();
 }
 
 void render(
-  int process,
+  const char *process,
   const char *output,
   cut_list cuts,
   int quality,
-  void (*progress)(const char*, double)
+  progress_callback *progress
 )
 {
   // wait until the mutex for this process is unlocked
   std::lock_guard lock(GetMutexForProcess(process));
 
-  std::filesystem::path cache_path = cache_prefix / std::to_string(process);
+  std::filesystem::path cache_path = cache_prefix / process;
   std::filesystem::path segment_path = cache_path / "segments";
   std::filesystem::path cut_path = cache_path / "cuts";
   std::filesystem::create_directories(cut_path);
@@ -164,6 +168,8 @@ void render(
   });
 
   const double progress_delta = 100.0 / segments.size();
+  // setup progress, to prevent async double init
+  // progress("Transcoding", 0);
 
   // iterate over all segments in the cache
   #pragma omp parallel for num_threads(omp_get_num_procs() / 4)
@@ -250,6 +256,8 @@ void render(
     }
     progress("Transcoding", progress_delta);
   }
+  // Set the progress to 100%
+  progress("Transcoding", -1);
 
   std::vector<std::filesystem::directory_entry> cut_files;
   for (const auto &entry : std::filesystem::directory_iterator(cut_path))
@@ -268,6 +276,7 @@ void render(
   {
     concat_file << "file 'cuts/" << entry.path().filename().string() << "'" << std::endl;
   }
+  concat_file.close();
 
   // concatenate all segments in the cut folder
   std::string command = "ffmpeg -f concat -safe 0 -i " + (cache_path / "concat.txt").string() + " -c copy \"" + output + "\" -loglevel " + log_level + " -hide_banner -nostdin";
@@ -275,5 +284,11 @@ void render(
   exec(command.c_str());
 
   // remove the cache folder for this process
-  std::filesystem::remove_all(cache_prefix / std::to_string(process));
+  std::error_code ec;
+  std::filesystem::remove_all(cache_path, ec);
+
+  if (ec)
+  {
+    std::cerr << "Error removing cache folder: " << ec.message() << std::endl;
+  }
 }

@@ -29,10 +29,12 @@ extern "C" {
     cut* cuts;
   };
 
+  typedef void progress_callback(const char*, double);
+
   // takes the given file and converts it to pcm audio
   // the audio is then processed by webrtcvad to
   // determine the speech segments
-  cut_list EXPORT generate(const char *file, void (*progress)(const char*, double));
+  cut_list EXPORT generate(const char *file, progress_callback* progress);
 
 #ifdef __cplusplus
 }

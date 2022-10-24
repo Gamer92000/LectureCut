@@ -1,8 +1,6 @@
-from ctypes import CFUNCTYPE, WINFUNCTYPE, c_char_p, c_double
+from ctypes import c_char_p, c_double, CFUNCTYPE
 import cv2
-import os
-
-FUNCTYPE = WINFUNCTYPE if os.name == "nt" else CFUNCTYPE
+from threading import Lock
 
 def get_video_length(videoPath):
   """
@@ -25,10 +23,18 @@ def get_progress_callback(progress, ptypes):
   progress -- the manager for the progress bars
   ptypes -- a map of existing progress types
   """
-  @FUNCTYPE(None, c_char_p, c_double)
+  progress.mutex = Lock()
+
+  @CFUNCTYPE(None, c_char_p, c_double)
   def progress_callback(ptype, delta):
+    progress.mutex.acquire()
     if ptype not in ptypes:
       ptypes[ptype] = progress.add_task(str(ptype, "utf-8"), total=100)
+    progress.mutex.release()
+    if delta == -1:
+      # set the progress to 100%
+      progress.update(ptypes[ptype], completed=100)
+      return
     progress.update(ptypes[ptype], advance=delta)
 
   return progress_callback

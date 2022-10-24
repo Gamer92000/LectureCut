@@ -13,9 +13,9 @@
 extern "C" {
 #endif
 
-  const char EXPORT *version();
+  EXPORT const char* version();
 
-  void EXPORT init(const char* ffmpeg_log_level);
+  EXPORT void init(const char* ffmpeg_log_level);
 
   struct cut
   {
@@ -29,23 +29,25 @@ extern "C" {
     cut* cuts;
   };
 
+  typedef void progress_callback(const char*, double);
+
   // prepare gets called before rendering is started
   // it returns an arbitrary id that needs to be passed to render
   // internlly, prepare can do whatever can be done before getting
   // the final cut list (e.g. load the file, segment it, etc.)
-  int EXPORT prepare(
+  EXPORT const char *prepare(
     const char *file,
-    void (*progress)(const char*, double)
+    progress_callback *progress
   );
 
   // render gets once the cut list is known
   // it renders the file and returns once it's done
-  void EXPORT render(
-    int process,
+  EXPORT void render(
+    const char *process,
     const char *output,
     cut_list cuts,
     int quality,
-    void (*progress)(const char*, double)
+    progress_callback *progress
   );
 
 #ifdef __cplusplus

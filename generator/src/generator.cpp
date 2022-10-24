@@ -1,11 +1,21 @@
+// local
 #include "generator.h"
 #include "definitions.h"
+#include "uuid.h"
 
+// 3rdparty
 #include "fvad.h"
 
+// std
 #include <string>
 #include <vector>
 #include <iostream>
+#include <filesystem>
+#include <fstream>
+#include <cstdio>
+
+std::filesystem::path tmp_path = std::filesystem::temp_directory_path();
+std::filesystem::path cache_prefix = tmp_path / "LectureCut" / "Generator";
 
 std::string log_level = DEFAULT_FFMPEG_LOG_LEVEL;
 
@@ -18,20 +28,22 @@ void init(const char* ffmpeg_log_level) {
   log_level = ffmpeg_log_level;
 }
 
-cut_list generate(const char *file, void (*progress)(const char*, double)) {
+cut_list generate(
+  const char *file,
+  progress_callback* progress
+)
+{
+  std::string id = uuid::generate_uuid_v4();
+  std::filesystem::path cache_path = cache_prefix / id;
+  std::filesystem::create_directories(cache_path);
   // use ffmpeg to convert the file to pcm audio
-  std::string command = "ffmpeg -i \"" + std::string(file) + "\" -f s16le -acodec pcm_s16le -ac 1 -ar 16000 -loglevel " + log_level + " -hide_banner -nostdin -";
-  
-  std::cout << "Running command: " << command << std::endl;
+  std::string command = "ffmpeg -i \"" + std::string(file) + "\" -f s16le -acodec pcm_s16le -ac 1 -ar 16000 -loglevel " + log_level + " -hide_banner -nostdin -y " + (cache_path / "audio.pcm").string();
 
-  FILE* pipe = popen(command.c_str(), "r");
-  if (!pipe) {
-    return {0, nullptr};
-  }
+  system(command.c_str());
 
-  std::cout << "Pipe opened" << std::endl;
+  FILE* pcm_file;
+  fopen_s(&pcm_file, (cache_path / "audio.pcm").string().c_str(), "rb");
 
-  // use webrtcvad to determine the speech segments
   Fvad *vad = fvad_new();
   
   fvad_set_mode(vad, 3);
@@ -45,27 +57,19 @@ cut_list generate(const char *file, void (*progress)(const char*, double)) {
   int16_t buffer[160];
   int result;
 
-  std::cout << "Starting to read from pipe" << std::endl;
-
   while (true) {
-    size_t read = fread(buffer, sizeof(int16_t), 160, pipe);
-    if (read == 0) {
+    fread(buffer, sizeof(int16_t), 160, pcm_file);
+    if (feof(pcm_file)) {
       break;
     }
-
-    // WTF WINDOWS?!
-    // ALL VALUES IN THE BUFFER ARE THE SAME?! (00000054003DD340)
-    // WHY?!
-    // because of the above, we can't use the buffer as a pointer to the data
-
     result = fvad_process(vad, buffer, 160);
+
     if (result == 1) {
       if (current_cut.start == 0) {
         current_cut.start = current_cut.end;
       }
     } else {
       if (current_cut.start != 0) {
-        std::cout << "Found cut: " << current_cut.start << " - " << current_cut.end << std::endl;
         cuts.push_back(current_cut);
         current_cut.start = 0;
       }
@@ -75,34 +79,20 @@ cut_list generate(const char *file, void (*progress)(const char*, double)) {
   }
 
   if (current_cut.start != 0) {
-    std::cout << "Found cut: " << current_cut.start << " - " << current_cut.end << std::endl;
     cuts.push_back(current_cut);
   }
 
-  std::cout << "Finished reading from pipe" << std::endl;
-
   fvad_free(vad);
 
-  pclose(pipe);
+  fclose(pcm_file);
+
+  std::filesystem::remove_all(cache_path);
 
   // ===========
   // FILTER CUTS
   // ===========
-
-  std::cout << "Filtering cuts" << std::endl;
-
+  
   // join cuts that are less than .2 seconds apart
-  // for (int i = 0; i < cuts.size() - 1; i++) {
-  //   if (cuts[i + 1].start - cuts[i].end < 0.2) {
-  //     cuts[i].end = cuts[i + 1].end;
-  //     cuts.erase(cuts.begin() + i + 1);
-  //     i--;
-  //   }
-  // }
-  // above code results in an access violation under windows, so the one below is way better
-  
-  std::cout << "Number of cuts before filtering: " << cuts.size() << std::endl;
-  
   std::vector<cut> filtered_cuts;
   for (int i = 0; i < cuts.size(); i++) {
     if (i == cuts.size() - 1) {
@@ -115,8 +105,6 @@ cut_list generate(const char *file, void (*progress)(const char*, double)) {
   }
   cuts = filtered_cuts;
 
-  std::cout << "Number of cuts after filtering: " << cuts.size() << std::endl;
-
   // remove cuts that are shorter than .2 seconds
   cuts.erase(std::remove_if(cuts.begin(), cuts.end(), [](const cut &c) {
     return c.end - c.start < 0.2;
@@ -128,11 +116,7 @@ cut_list generate(const char *file, void (*progress)(const char*, double)) {
     result_cuts[i] = cuts[i];
   }
 
-  std::cout << "Assembling cut list" << std::endl;
-
-  cut_list cutlist = { cuts.size(), result_cuts };
-
-  std::cout << "Cuts: " << cutlist.num_cuts << std::endl;
+  cut_list cutlist = { (long) cuts.size(), result_cuts };
 
   return cutlist;
 }

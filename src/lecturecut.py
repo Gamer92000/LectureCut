@@ -35,6 +35,8 @@ PROCESSES = N_CORES // 4
 
 instances = {}
 
+dont_fucking_garbage_collect_these_things = []
+
 def generate_cut_list(progress, ptypes, instance):
   """
   Generate a list of segments that should not be cut out of the video.
@@ -42,9 +44,10 @@ def generate_cut_list(progress, ptypes, instance):
 
   instance -- the instance id
   """
-  global instances
+  global instances, dont_fucking_garbage_collect_these_things
   file = instances[instance]["file"]
   callback = get_progress_callback(progress, ptypes)
+  dont_fucking_garbage_collect_these_things.append(callback)
   cut_list = generator.generate(file.encode("utf-8"), callback)
   instances[instance]["cut_list"] = cut_list
 
@@ -55,9 +58,10 @@ def prepare_video(progress, ptypes, instance):
 
   instance -- the instance id
   """
-  global instances
+  global instances, dont_fucking_garbage_collect_these_things
   file_name = instances[instance]["file"]
   callback = get_progress_callback(progress, ptypes)
+  dont_fucking_garbage_collect_these_things.append(callback)
   instances[instance]["render_id"] = render.prepare(file_name.encode("utf-8"), callback)
 
 def transcode(progress, ptypes, instance):
@@ -66,10 +70,12 @@ def transcode(progress, ptypes, instance):
 
   instance -- the instance id
   """
+  global dont_fucking_garbage_collect_these_things
   process = instances[instance]["render_id"]
   cut_list = instances[instance]["cut_list"]
   output = instances[instance]["output"]
   callback = get_progress_callback(progress, ptypes)
+  dont_fucking_garbage_collect_these_things.append(callback)
   render.render(
       process,
       output.encode("utf-8"),
@@ -112,13 +118,13 @@ def run(progress, config):
 
   ptypes = {}
 
-  rich.print("[green]1/3[/green] Preparing video")
+  # rich.print("[green]1/3[/green] Preparing video")
   Parallel(n_jobs=2, require="sharedmem")([
       delayed(generate_cut_list)(progress, ptypes, instance),
       delayed(prepare_video)(progress, ptypes, instance)])
-  rich.print("[green]2/3[/green] Transcoding video")
+  # rich.print("[green]2/3[/green] Transcoding video")
   transcode(progress, ptypes, instance)
-  rich.print("[green]3/3[/green] Cleaning up")
+  # rich.print("[green]3/3[/green] Cleaning up")
 
 
 invert = False

@@ -6,3 +6,7 @@
   #define popen _popen
   #define pclose _pclose
 #endif
+
+#ifndef _WIN32
+  #define fopen_s(fp, fmt, mode)          *(fp)=fopen( (fmt), (mode))
+#endif
