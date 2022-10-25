@@ -7,8 +7,8 @@ def print_stats(files, total_time):
   """
   Print some stats for the given files.
 
-  input_files -- The input files.
-  output_files -- The output files.
+  files -- a list of tuples of (input_file, output_file, stats)
+  total_time -- the total time taken to process all files
   """
   table = Table(title="File Stats", title_style="white italic")
 

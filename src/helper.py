@@ -1,7 +1,13 @@
 from ctypes import c_char_p, c_double, CFUNCTYPE
-import cv2
 from threading import Lock
-import rich
+import os
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn,
+)
 
 
 def get_progress_callback(progress, ptypes):
@@ -27,30 +33,35 @@ def get_progress_callback(progress, ptypes):
 
   return progress_callback
 
-def print_non_mp4_warning():
-  """
-  Print a warning if an input file is not an mp4.
-  """
-  rich.print("[yellow]⚠️: The input file is not an mp4. This may cause issues.[/yellow]")
 
-def print_dir_not_empty_warning():
+def get_automatic_path(file_path, invert):
   """
-  Print a warning if the output directory is not empty.
-  """
-  rich.print("[yellow]⚠️: The output directory is not empty. Existing files will be skipped.[/yellow]")
+  Get the automatic name insert for the output file.
 
-def print_reencode_missing_check_warning():
+  file_path -- the path to the input file
+  invert -- whether the cuts should be inverted
   """
-  Print a warning if the reencode check is missing.
-  """
-  rich.print("[yellow]⚠️: The reencode value is currently not checked. This may result in unpredictable behavior.[/yellow]")
+  automatic_name_insert = "_lecturecut"
 
-def raise_rich(message):
-  """
-  Raise a rich error.
+  if invert:
+    automatic_name_insert = "_inverted" + automatic_name_insert
 
-  message -- the error message
+  name, ext = os.path.splitext(file_path)
+
+  return name + automatic_name_insert + ext
+
+
+def generate_progress_instance():
   """
-  rich.print(f"[red]ERROR[/red]: {message}")
-  rich.print()
-  raise SystemExit(1)
+  Generate a progress instance for all progress bars on a single file.
+  """
+  return Progress(
+    TextColumn("{task.description}", justify="right"),
+    BarColumn(bar_width=None),
+    TextColumn("[progress.percentage]{task.percentage:>3.1f}%", justify="right"),
+    "•",
+    TimeRemainingColumn(),
+    "•",
+    TimeElapsedColumn(),
+    transient=True,
+  )

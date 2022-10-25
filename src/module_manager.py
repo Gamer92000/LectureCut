@@ -1,8 +1,18 @@
-from ctypes import CDLL, CFUNCTYPE, Structure, c_double, c_long, c_int, c_char_p, POINTER, c_bool
+from ctypes import (
+  CDLL,
+  CFUNCTYPE,
+  POINTER,
+  c_bool,
+  c_char_p,
+  c_double,
+  c_int,
+  c_long,
+  Structure
+)
 import pathlib
 import os
 
-ffmpeg_log_lvl = "error"
+ffmpeg_log_lvl = "quiet"
 
 class CUT(Structure):
   _fields_ = [("start", c_double), ("end", c_double)]
@@ -20,6 +30,10 @@ path = pathlib.Path(__file__).parent.resolve()
 path /= "modules"
 
 def get_render():
+  """
+  Loads the render dynamic library and
+  sets the types of each exported function.
+  """
   lib = "default.dll" if os.name == "nt" else "libdefault.so"
   render = CDLL(str(path / "render" / lib))
 
@@ -35,7 +49,12 @@ def get_render():
   render.init(ffmpeg_log_lvl.encode("utf-8"))
   return render
 
+
 def get_generator():
+  """
+  Loads the generator dynamic library and
+  sets the types of each exported function.
+  """
   lib = "default.dll" if os.name == "nt" else "libdefault.so"
   generator = CDLL(str(path / "generator" / lib))
 
