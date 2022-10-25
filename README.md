@@ -33,28 +33,29 @@ the most up-to-date version of LectureCut and its dependencies.
 
 Pull the LectureCut image from GitHub Container Registry.
 ```bash
-# pull a specific release version
-docker pull ghcr.io/gamer92000/lecturecut:<version>
 # pull the current main
 docker pull ghcr.io/gamer92000/lecturecut:main
+# pull a specific release version
+docker pull ghcr.io/gamer92000/lecturecut:<version>
 ```
 
 Simple example: 
-To run LectureCut via Docker, simply mount the file location into the container. In this example,
-video.mp4 is mounted into /tmp in the container and `lecturecut` is run with the `-i` input flag pointing to this location.
+To run LectureCut via Docker, simply mount the file location into the container.
+In this example, the current working directory is mounted into /tmp/io in the container and
+`lecturecut` is run with the `-i` input flag pointing to the video in `/tmp/io` relative to the pwd.
 ```bash
-docker run -it -v /path/to/video_file/on_your_machine/video.mp4:/tmp/video.mp4 ghcr.io/gamer92000/lecturecut:main -i /tmp/video.mp4
+docker run -it -v $(pwd):/tmp/io ghcr.io/gamer92000/lecturecut:main -i /tmp/io/<path to video>.mp4
 ```
 
-Multiple directories example:
+Batch processing example:
 ```bash
 docker run -it \
-  -v /path/to/input_files/:/tmp/input_files/ \
-  -v /path/to/output_files/:/tmp/output_files/ \
-  ghcr.io/gamer92000/lecturecut:main -i /tmp/input_files/video_in.mp4 -o /tmp/output_files/video_out.mp4 -q 25 -a 2
+  -v /path/to/input_files/:/tmp/io/input/ \
+  -v /path/to/output_files/:/tmp/io/output/ \
+  ghcr.io/gamer92000/lecturecut:main -i /tmp/io/input/ -o /tmp/output -q 25 -a 2
 ```
 
-### 🐍 Python
+### 🐍 Manual using Python
 
 #### 👶 Requirements
 
@@ -64,9 +65,30 @@ To install the python dependencies, simply run:
 pip install -r requirements.txt
 ```
 
+Then you need to compile the required modules.
+You need to have a C++ compiler and `cmake` and `make` installed.
+
+##### 🐧 Linux / 🍎 macOS
+
+Simply run:
+```bash
+cd build_tools
+make build
+```
+
+##### 🪟 Windows
+
+On Windows you need to have [Visual Studio](https://visualstudio.microsoft.com/) installed.  
+
+Then in a developer command prompt run:
+```bash
+cd build_tools
+.\build.bat
+```
+
 #### 🏃 Running
 
-To run the program, simply run:
+After you have installed the dependencies, you can use LectureCut by running:
 ```bash
 python src/lecturecut.py -h
 ```

@@ -1,0 +1,14 @@
+**/__pycache__
+**/*.mp4
+
+**/*.code-workspace
+**/.vscode
+
+**/build
+**/CMakeFiles
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/Makefile
+
+**/*.dll
+**/*.so

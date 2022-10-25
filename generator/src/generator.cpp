@@ -14,7 +14,10 @@
 #include <fstream>
 #include <cassert>
 #include <thread>
+
+#ifdef _WIN32
 #include "Windows.h"
+#endif
 
 std::filesystem::path tmp_path = std::filesystem::temp_directory_path();
 std::filesystem::path cache_prefix = tmp_path / "LectureCut" / "Generator";
