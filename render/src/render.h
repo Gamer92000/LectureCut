@@ -1,3 +1,5 @@
+#pragma once
+
 #if defined(_MSC_VER)
   //  Microsoft 
   #define EXPORT __declspec(dllexport)

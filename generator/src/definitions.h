@@ -1,3 +1,5 @@
+#pragma once
+
 #define VERSION "0.1.1"
 #define DEFAULT_FFMPEG_LOG_LEVEL "quiet"
 
@@ -9,4 +11,10 @@
 
 #ifndef _WIN32
   #define fopen_s(fp, fmt, mode)          *(fp)=fopen( (fmt), (mode))
+#endif
+
+#ifdef NDEBUG
+#  define assert(condition) ((void)0)
+#else
+#  define assert(condition) /*implementation defined*/
 #endif

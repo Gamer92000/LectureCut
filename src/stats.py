@@ -1,5 +1,4 @@
 import os
-from helper import get_video_length
 import rich
 from rich.align import Align
 from rich.table import Table
@@ -24,10 +23,10 @@ def print_stats(files, total_time):
   total_output_length = 0
   total_output_size = 0
 
-  for input_file, output_file in files:
-    input_length = get_video_length(input_file)
+  for input_file, output_file, stats in files:
+    input_length = stats.len_pre_cut
     input_size = os.path.getsize(input_file)
-    output_length = get_video_length(output_file)
+    output_length = stats.len_post_cut
     output_size = os.path.getsize(output_file)
     total_input_length += input_length
     total_input_size += input_size

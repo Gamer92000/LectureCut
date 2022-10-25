@@ -1,3 +1,5 @@
+#pragma once
+
 #if defined(_MSC_VER)
   //  Microsoft 
   #define EXPORT __declspec(dllexport)
@@ -13,9 +15,9 @@
 extern "C" {
 #endif
 
-  const char EXPORT *version();
+  EXPORT const char *version();
 
-  void EXPORT init(const char* ffmpeg_log_level);
+  EXPORT void init(const char* ffmpeg_log_level);
 
   struct cut
   {
@@ -29,13 +31,26 @@ extern "C" {
     cut* cuts;
   };
 
+  struct generator_stats
+  {
+    double len_pre_cuts;
+    double len_post_cuts;
+  };
+
+  struct result
+  {
+    cut_list cuts;
+    generator_stats stats;
+  };
+
   typedef void progress_callback(const char*, double);
 
   // takes the given file and converts it to pcm audio
   // the audio is then processed by webrtcvad to
   // determine the speech segments
-  cut_list EXPORT generate(
+  EXPORT result generate(
     const char *file,
+    int aggressiveness,
     bool invert,
     progress_callback* progress
   );

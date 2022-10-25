@@ -12,7 +12,9 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
-#include <cstdio>
+#include <cassert>
+#include <thread>
+#include "Windows.h"
 
 std::filesystem::path tmp_path = std::filesystem::temp_directory_path();
 std::filesystem::path cache_prefix = tmp_path / "LectureCut" / "Generator";
@@ -28,26 +30,52 @@ void init(const char* ffmpeg_log_level) {
   log_level = ffmpeg_log_level;
 }
 
-cut_list generate(
+result generate(
   const char *file,
+  int aggressiveness,
   bool invert,
   progress_callback* progress
 )
 {
+  // ================
+  // INPUT VALIDATION
+  // ================
+
+  // check if file exists
+  assert(std::filesystem::exists(file));
+
+  // check if aggressiveness is valid
+  assert(aggressiveness >= 0 && aggressiveness <= 3);
+
+  // ==============
+  // INITIALIZATION
+  // ==============
+
   std::string id = uuid::generate_uuid_v4();
   std::filesystem::path cache_path = cache_prefix / id;
   std::filesystem::create_directories(cache_path);
-  // use ffmpeg to convert the file to pcm audio
+
+  // ============
+  // MEDIA -> PCM
+  // ============
   std::string command = "ffmpeg -i \"" + std::string(file) + "\" -f s16le -acodec pcm_s16le -ac 1 -ar 16000 -loglevel " + log_level + " -hide_banner -nostdin -y " + (cache_path / "audio.pcm").string();
 
   system(command.c_str());
 
-  FILE* pcm_file;
-  fopen_s(&pcm_file, (cache_path / "audio.pcm").string().c_str(), "rb");
+  #ifndef _WIN32
+  std::fstream pcm_file((cache_path / "audio.pcm").string(), std::ios::in | std::ios::binary);
+  #else
+  // use WIN32 API to open file
+  HANDLE pcm_file = CreateFile((cache_path / "audio.pcm").string().c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  #endif
+
+  // =============
+  // PCM -> SPEECH
+  // =============
 
   Fvad *vad = fvad_new();
   
-  fvad_set_mode(vad, 3);
+  fvad_set_mode(vad, aggressiveness);
   fvad_set_sample_rate(vad, 16000);
 
   std::vector<cut> cuts;
@@ -56,18 +84,26 @@ cut_list generate(
   current_cut.end = 0;
 
   int16_t buffer[160];
-  int result;
+  int vad_result;
 
-  long total_video_length = 0;
+  double total_video_length = 0;
 
   while (true) {
-    fread(buffer, sizeof(int16_t), 160, pcm_file);
-    if (feof(pcm_file)) {
+    #ifndef _WIN32
+    pcm_file.read((char*)buffer, sizeof(int16_t) * 160);
+    if (pcm_file.eof()) {
       break;
     }
-    result = fvad_process(vad, buffer, 160);
+    #else
+    DWORD read;
+    ReadFile(pcm_file, buffer, sizeof(int16_t) * 160, &read, NULL);
+    if (read == 0) {
+      break;
+    }
+    #endif
+    vad_result = fvad_process(vad, buffer, 160);
 
-    if (result == 1) {
+    if (vad_result == 1) {
       if (current_cut.start == 0) {
         current_cut.start = current_cut.end;
       }
@@ -88,9 +124,17 @@ cut_list generate(
 
   fvad_free(vad);
 
-  fclose(pcm_file);
+  #ifndef _WIN32
+  pcm_file.close();
+  #else
+  CloseHandle(pcm_file);
+  #endif
 
-  std::filesystem::remove_all(cache_path);
+  std::error_code ec;
+  std::filesystem::remove_all(cache_path, ec);
+  if (ec) {
+    std::cerr << "Error removing cache folder: " << ec.message() << std::endl;
+  }
 
   // ======
   // INVERT
@@ -143,5 +187,13 @@ cut_list generate(
 
   cut_list cutlist = { (long) cuts.size(), result_cuts };
 
-  return cutlist;
+  double total_cut_length = 0;
+  #pragma omp parallel for reduction(+:total_cut_length)
+  for (int i = 0; i < cuts.size(); i++) {
+    total_cut_length += cuts[i].end - cuts[i].start;
+  }
+
+  result result = { cutlist, {total_video_length, total_cut_length} };
+
+  return result;
 }

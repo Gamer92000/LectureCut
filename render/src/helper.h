@@ -1,3 +1,7 @@
+#pragma once
+
+#include "definitions.h"
+
 #include <cstdio>
 #include <iostream>
 #include <memory>
@@ -5,11 +9,7 @@
 #include <string>
 #include <array>
 #include <functional>
-
-#ifdef _WIN32
-#define popen _popen
-#define pclose _pclose
-#endif
+#include <filesystem>
 
 std::string exec(const char* cmd) {
     std::array<char, 128> buffer;
@@ -22,4 +22,15 @@ std::string exec(const char* cmd) {
         result += buffer.data();
     }
     return result;
+}
+
+std::vector<std::filesystem::directory_entry> get_dir_sorted(std::filesystem::path path) {
+    std::vector<std::filesystem::directory_entry> files;
+    for (const auto & entry : std::filesystem::directory_iterator(path)) {
+        files.push_back(entry);
+    }
+    std::sort(files.begin(), files.end(), [](const auto& a, const auto& b) {
+        return a.path().filename() < b.path().filename();
+    });
+    return files;
 }

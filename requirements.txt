@@ -1,5 +1,2 @@
-ffmpeg-python
-webrtcvad
-opencv-python
-joblib
+filetype
 rich>=12

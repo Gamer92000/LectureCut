@@ -16,6 +16,7 @@
 #include <fstream>
 #include <omp.h>
 #include <system_error>
+#include <cassert>
 
 
 // make sure render is only started after prepare is done for a given file
@@ -52,6 +53,10 @@ void internal_prepare(
   progress_callback *progress
 )
 {
+  // ==============
+  // INITIALIZATION
+  // ==============
+
   // lock the mutex for this process
   std::lock_guard lock(GetMutexForProcess(process));
 
@@ -59,25 +64,21 @@ void internal_prepare(
   std::filesystem::path segment_path = cache_prefix / process / "segments";
   std::filesystem::create_directories(segment_path);
 
-  // use ffmpeg to split the video into segments
-  // segment at every keyframe'
-  // output ts files to the instances cache folder
+  // ============
+  // SEGMENTATION
+  // ============
+
   std::string command = "ffmpeg -i \"" + std::string(file) + "\" -c copy -f segment -reset_timestamps 1 -loglevel " + log_level + " -hide_banner -nostdin \"" + (segment_path / "out%05d.ts").string() + "\"";
 
   // execute the command
   exec(command.c_str());
   
   // get a list of all directory_entries (segments)
-  std::vector<std::filesystem::directory_entry> segments;
-  for (const auto &entry : std::filesystem::directory_iterator(segment_path))
-  {
-    segments.push_back(entry);
-  }
+  std::vector<std::filesystem::directory_entry> segments = get_dir_sorted(segment_path);
 
-  // sort the segments by name
-  std::sort(segments.begin(), segments.end(), [](const std::filesystem::directory_entry &a, const std::filesystem::directory_entry &b) {
-    return a.path().filename().string() < b.path().filename().string();
-  });
+  // =================
+  // SEGMENT ANALZYSIS
+  // =================
 
   // initialize the vector for the instance data with the correct size
   std::vector<double> segment_length;
@@ -107,6 +108,10 @@ void internal_prepare(
   // Set progress to 100%
   progress("Analysing", -1);
 
+  // ================
+  // DURATION -> TIME
+  // ================
+
   std::vector<std::tuple<double, double>> instance_data;
   double start = 0;
   for (const auto &length : segment_length)
@@ -124,6 +129,17 @@ const char *prepare(
   progress_callback *progress
 )
 {
+  // ================
+  // INPUT VALIDATION
+  // ================
+
+  // check if file exists
+  assert(std::filesystem::exists(file));
+
+  // ==============
+  // INITIALIZATION
+  // ==============
+
   // generate a random ID that will be used to identify the render
   // this is used to prevent the render from being overwritten by another
   // render with the same name
@@ -147,6 +163,23 @@ void render(
   progress_callback *progress
 )
 {
+  // ================
+  // INPUT VALIDATION
+  // ================
+
+  // check that a mutex for this process exists
+  assert(processes.find(process) != processes.end());
+
+  // check if output file exists (should not)
+  assert(!std::filesystem::exists(output));
+
+  // check that the quality is in the correct range (quality is a number between 0 and 51)
+  assert(quality >= 0 && quality <= 51);
+
+  // ==============
+  // INITIALIZATION
+  // ==============
+
   // wait until the mutex for this process is unlocked
   std::lock_guard lock(GetMutexForProcess(process));
 
@@ -156,22 +189,14 @@ void render(
   std::filesystem::create_directories(cut_path);
 
   // get a list of all directory_entries (segments)
-  std::vector<std::filesystem::directory_entry> segments;
-  for (const auto &entry : std::filesystem::directory_iterator(segment_path))
-  {
-    segments.push_back(entry);
-  }
-
-  // sort the segments by name
-  std::sort(segments.begin(), segments.end(), [](const auto &a, const auto &b) {
-    return a.path().filename().string() < b.path().filename().string();
-  });
+  std::vector<std::filesystem::directory_entry> segments = get_dir_sorted(segment_path);
 
   const double progress_delta = 100.0 / segments.size();
-  // setup progress, to prevent async double init
-  // progress("Transcoding", 0);
 
-  // iterate over all segments in the cache
+  // ===========
+  // TRANSCODING
+  // ===========
+
   #pragma omp parallel for num_threads(omp_get_num_procs() / 4)
   for (int i = 0; i < segments.size(); i++)
   {
@@ -259,16 +284,11 @@ void render(
   // Set the progress to 100%
   progress("Transcoding", -1);
 
-  std::vector<std::filesystem::directory_entry> cut_files;
-  for (const auto &entry : std::filesystem::directory_iterator(cut_path))
-  {
-    cut_files.push_back(entry);
-  }
+  // ===========
+  // CONCATENATE
+  // ===========
 
-  // sort the segments by name
-  std::sort(cut_files.begin(), cut_files.end(), [](const auto &a, const auto &b) {
-    return a.path().filename().string() < b.path().filename().string();
-  });
+  std::vector<std::filesystem::directory_entry> cut_files = get_dir_sorted(cut_path);
 
   // create concat file in cache
   std::ofstream concat_file((cache_path / "concat.txt").string());
@@ -282,6 +302,10 @@ void render(
   std::string command = "ffmpeg -f concat -safe 0 -i " + (cache_path / "concat.txt").string() + " -c copy \"" + output + "\" -loglevel " + log_level + " -hide_banner -nostdin";
 
   exec(command.c_str());
+
+  // =======
+  // CLEANUP
+  // =======
 
   // remove the cache folder for this process
   std::error_code ec;

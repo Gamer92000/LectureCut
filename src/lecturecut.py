@@ -6,8 +6,7 @@ import os
 import textwrap
 import time
 import uuid
-
-from joblib import Parallel, delayed
+import filetype
 
 import rich
 from rich.console import Group
@@ -21,7 +20,7 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn,
 )
-from helper import get_progress_callback
+from helper import get_progress_callback, print_dir_not_empty_warning, print_non_mp4_warning, print_reencode_missing_check_warning, raise_rich
 from module_manager import get_generator, get_render
 
 from stats import print_stats
@@ -48,8 +47,9 @@ def generate_cut_list(progress, ptypes, instance):
   file = instances[instance]["file"]
   callback = get_progress_callback(progress, ptypes)
   dont_fucking_garbage_collect_these_things.append(callback)
-  cut_list = generator.generate(file.encode("utf-8"), invert, callback)
-  instances[instance]["cut_list"] = cut_list
+  result = generator.generate(file.encode("utf-8"), aggressiveness, invert, callback)
+  instances[instance]["cut_list"] = result.cuts
+  instances[instance]["stats"] = result.stats
 
 def prepare_video(progress, ptypes, instance):
   """
@@ -105,8 +105,13 @@ def run(progress, config):
   """
   global instances
 
-  rich.print(f"Input:  [yellow]{config['file']}[/yellow]")
-  rich.print(f"Output: [yellow]{config['output']}[/yellow]\n")
+  ft = filetype.guess(config["file"])
+  mime = ft.mime if ft else ""
+
+  rich.print(f"  Input: [yellow]{config['file']}[/yellow]")
+  rich.print(f" Output: [yellow]{config['output']}[/yellow]\n")
+  if mime != "video/mp4":
+    rich.print(f"[red]WARNING[/red]: Input file is not an mp4 file. This might cause problems.")
 
   instance = str(uuid.uuid4())
   instances[instance] = {
@@ -118,10 +123,11 @@ def run(progress, config):
 
   ptypes = {}
 
-  Parallel(n_jobs=2, require="sharedmem")([
-      delayed(generate_cut_list)(progress, ptypes, instance),
-      delayed(prepare_video)(progress, ptypes, instance)])
+  prepare_video(progress, ptypes, instance)
+  generate_cut_list(progress, ptypes, instance)
   transcode(progress, ptypes, instance)
+
+  return instances[instance]["stats"]
 
 invert = False
 quality = 20
@@ -161,10 +167,10 @@ def parse_args():
   parser.add_argument(
       "-a", "--aggressiveness",
       help="The aggressiveness of the VAD."+\
-          " Higher is more aggressive. Default: 3",
+          " Higher is more aggressive. Default: 1",
       required=False,
       type=int,
-      default=3)
+      default=1)
   parser.add_argument(
       "-r", "--reencode",
       help="Reencode the video with a given video codec.",
@@ -189,7 +195,7 @@ def parse_args():
     reencode = args.reencode
 
   if args.invert and not args.aggressiveness:
-    aggressiveness = 1
+    aggressiveness = 3
 
   return args
 
@@ -216,34 +222,32 @@ def greetings():
   subtitle = Align(subtitle, align="center")
   rich.print(subtitle)
 
-def get_automatic_name_insert():
+def get_automatic_path(file_path):
   """
   Get the automatic name insert for the output file.
   """
-  automatic_name_insert = "_lecturecut."
+  automatic_name_insert = "_lecturecut"
 
   if invert:
     automatic_name_insert = "_inverted" + automatic_name_insert
 
-  return automatic_name_insert
+  name, ext = os.path.splitext(file_path)
+
+  return name + automatic_name_insert + ext
 
 def process_files_in_dir(args):
   get_file_path = lambda x: x
   if args.output:
-    if not os.path.isdir(args.output):
-      os.mkdir(args.output)
     get_file_path = lambda x: os.path.join(args.output, os.path.basename(x))
   else:
-    get_file_path = lambda x: os.path.splitext(os.path.basename(x))[0] +\
-        get_automatic_name_insert() +\
-        x.rsplit(".", 1)[1]
+    get_file_path = lambda x: get_automatic_path(x)
 
   files = sorted(os.listdir(args.input))
   files = [f for f in files if os.path.isfile(os.path.join(args.input, f))]
   files = [os.path.join(args.input, f) for f in files]
-  # TODO: Check if files are actually videos
+  files = [f for f in files if (ft := filetype.guess(f)) and ft.mime.startswith("video/")]
   files = [(x, get_file_path(x)) for x in files]
-  
+
   file_progress = Progress(
       "[progress.description]{task.description}",
       BarColumn(bar_width=None),
@@ -259,13 +263,14 @@ def process_files_in_dir(args):
   with Live(group):
     pbar = file_progress.add_task("[yellow]Videos", total=len(files))
 
-    for input_file, output_file in files:
+    for i, (input_file, output_file) in enumerate(files):
       prog = generate_progress_instance()
       group.renderables.insert(0, prog)
-      run(prog, {
+      stats = run(prog, {
         "file": input_file,
         "output": output_file
       })
+      files[i] += stats
       file_progress.update(pbar, advance=1)
       group.renderables.remove(prog)
       rich.print(prog)
@@ -281,31 +286,94 @@ def main():
   """
   Main function.
   """
-  args = parse_args()
   greetings()
+  args = parse_args()
 
+  # ================
+  # Input Validation
+  # ================
+
+  # input validation
   # because windows is seemingly designed by a 5 year old
   # we need to replace trailing double quotes with a backslash
   # ( see https://bugs.python.org/msg364246 )
   args.input = args.input.replace('"', '\\')
+  if not os.path.exists(args.input):
+    raise_rich("Input file or directory does not exist.")
+  if not os.path.isfile(args.input) and not os.path.isdir(args.input):
+    raise_rich("Input needs to be a file or a directory.")
+  if os.path.isfile(args.input):
+    ftype = filetype.guess(args.input)
+    if not ftype:
+      raise_rich("Input file has an unknown file type.")
+    if not ftype.mime.startswith("video/"):
+      raise_rich("Input file seems not to be a video.")
+
+  # output validation
+  if args.output:
+    # output may not contain any illegal characters for paths
+    if os.name == "nt":
+      illegal_chars = "<>:\"|?*" + "".join([chr(x) for x in range(32)])
+    else:
+      illegal_chars = chr(0)
+    if any([c in args.output for c in illegal_chars]):
+      raise_rich("Output path contains illegal characters.")
+    # if input is directory, output needs to be an empty directory, or not exist
+    if os.path.isdir(args.input):
+      if os.path.exists(args.output):
+        if not os.path.isdir(args.output):
+          raise_rich("Output path needs to be a directory.")
+        if os.listdir(args.output):
+          print_dir_not_empty_warning()
+      else:
+        try:
+          os.mkdir(args.output)
+        except:
+          raise_rich("Could not create output directory.")
+    # if input is file, output needs not to exist
+    else:
+      if os.path.exists(args.output):
+        raise_rich("Output file already exists.")
+  else:
+    if not os.path.isdir(args.input):
+      args.output = get_automatic_path(args.input)
+      if os.path.exists(args.output):
+        raise_rich("Output file already exists.")
+
+  # quality validation
+  if args.quality < 0 or args.quality > 51:
+    raise_rich("Quality needs to be between 0 and 51.")
+
+  # aggressiveness validation
+  # FROM fvad:
+  #  * A more aggressive (higher mode) VAD is more restrictive in reporting speech.
+  #  * Put in other words the probability of being speech when the VAD returns 1 is
+  #  * increased with increasing mode. As a consequence also the missed detection
+  #  * rate goes up.
+  if args.aggressiveness < 0 or args.aggressiveness > 3:
+    raise_rich("Aggressiveness needs to be between 0 and 3.")
+
+  # reencode validation
+  if args.reencode:
+    print_reencode_missing_check_warning()
+
+  # ================
+  # Input Processing
+  # ================
 
   if os.path.isdir(args.input):
     process_files_in_dir(args)
   else:
-    if args.output == None:
-      args.output = args.input.rsplit(".", 1)[0] +\
-        get_automatic_name_insert() +\
-        args.input.rsplit(".", 1)[1]
-
     start = time.perf_counter()
-    with generate_progress_instance() as progress:
-      run(progress, {
-        "file": args.input,
-        "output": args.output
-      })
+    # with generate_progress_instance() as progress:
+    progress = generate_progress_instance()
+    stats = run(progress, {
+      "file": args.input,
+      "output": args.output
+    })
     end = time.perf_counter()
 
-    print_stats([(args.input, args.output)], end - start)
+    print_stats([(args.input, args.output, stats)], end - start)
 
 if __name__ == "__main__":
   main()

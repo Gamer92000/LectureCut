@@ -1,19 +1,7 @@
 from ctypes import c_char_p, c_double, CFUNCTYPE
 import cv2
 from threading import Lock
-
-def get_video_length(videoPath):
-  """
-  Get the length of the given video in seconds.
-
-  progress -- the manager for the progress bars
-  pbar -- the progress bar
-  videoPath -- the path to the video
-  """
-  video = cv2.VideoCapture(videoPath)
-  fps = video.get(cv2.CAP_PROP_FPS)
-  frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
-  return frame_count / fps
+import rich
 
 
 def get_progress_callback(progress, ptypes):
@@ -38,3 +26,31 @@ def get_progress_callback(progress, ptypes):
     progress.update(ptypes[ptype], advance=delta)
 
   return progress_callback
+
+def print_non_mp4_warning():
+  """
+  Print a warning if an input file is not an mp4.
+  """
+  rich.print("[yellow]⚠️: The input file is not an mp4. This may cause issues.[/yellow]")
+
+def print_dir_not_empty_warning():
+  """
+  Print a warning if the output directory is not empty.
+  """
+  rich.print("[yellow]⚠️: The output directory is not empty. Existing files will be skipped.[/yellow]")
+
+def print_reencode_missing_check_warning():
+  """
+  Print a warning if the reencode check is missing.
+  """
+  rich.print("[yellow]⚠️: The reencode value is currently not checked. This may result in unpredictable behavior.[/yellow]")
+
+def raise_rich(message):
+  """
+  Raise a rich error.
+
+  message -- the error message
+  """
+  rich.print(f"[red]ERROR[/red]: {message}")
+  rich.print()
+  raise SystemExit(1)
