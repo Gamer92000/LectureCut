@@ -17,7 +17,7 @@ GOTO :eof
   CD ..\render
   cmake -DCMAKE_BUILD_TYPE=Release -B build
   cmake --build build --config Release
-  MOVE build\Release\render.dll ..\src\modules\render\default.dll
+  MOVE build\Release\render.dll ..\modules\render.dll
   CD ..\build_tools
   EXIT /b 0
 
@@ -25,7 +25,7 @@ GOTO :eof
   CD ..\generator
   cmake -DCMAKE_BUILD_TYPE=Release -B build
   cmake --build build --config Release
-  MOVE build\Release\generator.dll ..\src\modules\generator\default.dll
+  MOVE build\Release\generator.dll ..\modules\generator.dll
   CD ..\build_tools
   EXIT /b 0
 

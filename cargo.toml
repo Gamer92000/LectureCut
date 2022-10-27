@@ -1,0 +1,9 @@
+[package]
+name = "lecturecut"
+version = "0.1.0"
+
+[dependencies]
+argparse = "0.2.2"
+console = "0.15.2"
+libloading = "0.7.3"
+tree_magic = "0.2.3"

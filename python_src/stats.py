@@ -17,7 +17,7 @@ def print_stats(files, total_time):
   table.add_column("Duration Changes", justify="right", style="cyan")
   table.add_column("Duration %", justify="right", style="magenta")
 
-  # total length of input video 
+  # total length of input video
   total_input_length = 0
   total_input_size = 0
   total_output_length = 0
