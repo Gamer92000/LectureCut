@@ -154,7 +154,7 @@ def transcode(progress, instance):
   cache_path = CACHE_PREFIX + f"/{instance}/"
   segments = instances[instance]["segments"]
   cuts = instances[instance]["cuts"]
-  # check for argument Timestamps only "-tsonly"
+  # check for argument Timestamps only "--tsonly"
   if ts_only:
     #write csv with timestamps
     with open("timestamps.csv", "w") as f:
@@ -332,7 +332,7 @@ def run(progress, config):
       delayed(generate_cut_list)(instance),
       delayed(prepare_video)(progress, instance)])
   transcode(progress, instance)
-  # only continue if -tsonly is not set
+  # only continue if --tsonly is not set
   if not ts_only:
     concat_segments(progress, instance)
     cleanup(instance)
