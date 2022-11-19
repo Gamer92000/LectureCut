@@ -3,3 +3,5 @@ __pycache__/
 
 *.code-workspace
 .vscode/
+timestamps.csv
+testVideo.mp4

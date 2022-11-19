@@ -4,6 +4,7 @@ import argparse
 import atexit
 import multiprocessing
 import os
+import sys
 import textwrap
 import time
 import uuid
@@ -153,6 +154,16 @@ def transcode(progress, instance):
   cache_path = CACHE_PREFIX + f"/{instance}/"
   segments = instances[instance]["segments"]
   cuts = instances[instance]["cuts"]
+  # check for argument Timestamps only "-tsonly"
+  if ts_only:
+    #write csv with timestamps
+    with open("timestamps.csv", "w") as f:
+      for cut in cuts:
+        f.write(f"{cut[0]},{cut[1]},\n")
+    exit("timestamps.csv written")
+    
+      
+  
 
   pbar = progress.add_task("[magenta]Transcoding", total=len(segments))
 
@@ -321,8 +332,10 @@ def run(progress, config):
       delayed(generate_cut_list)(instance),
       delayed(prepare_video)(progress, instance)])
   transcode(progress, instance)
-  concat_segments(progress, instance)
-  cleanup(instance)
+  # only continue if -tsonly is not set
+  if not ts_only:
+    concat_segments(progress, instance)
+    cleanup(instance)
 
 
 invert = False
@@ -334,7 +347,7 @@ def parse_args():
   """
   Parse the command line arguments.
   """
-  global invert, quality, aggressiveness, reencode
+  global invert, quality, aggressiveness, reencode, ts_only
   parser = argparse.ArgumentParser(description=textwrap.dedent("""
     LectureCut is a tool to remove silence from videos.
 
@@ -378,11 +391,19 @@ def parse_args():
           " This will cut out all segments that are not silence.",
       required=False,
       action="store_true")
+  parser.add_argument(
+      "--tsonly",
+      help="Invert the selection."+\
+          " This will only output a csv with the cut timestamps.",
+      required=False,
+      action="store_true")
 
   args = parser.parse_args()
 
   if args.invert:
     invert = True
+  if args.tsonly:
+      ts_only = True
   if args.quality:
     quality = args.quality
   if args.aggressiveness:
