@@ -9,6 +9,7 @@ build/
 **/CMakeCache.txt
 **/cmake_install.cmake
 **/Makefile
+!build_tools/Makefile
 
 **/*.dll
 **/*.so
