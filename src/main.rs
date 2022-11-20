@@ -7,6 +7,8 @@ mod printer;
 mod helper;
 mod module_manager;
 
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -87,6 +89,23 @@ fn run(options: &Options, generator: &Library, render: &Library) -> GeneratorSta
     drop(locked_prog);
   }
 
+  if options.tsonly {
+    let gen = generator_generate(&generator, options.input.as_str(), options.aggressiveness.into(), options.invert, callback);
+    let file = File::create(options.output.as_str());
+    if !file.is_ok() {
+      panic!("Failed to create output file");
+    }
+    let mut file = file.unwrap();
+    for i in 0..gen.cuts.length {
+      unsafe {
+        let cut = gen.cuts.cuts.offset(i as isize).as_ref().unwrap();
+        file.write(format!("{},{}\n", cut.start, cut.end).as_bytes()).unwrap();
+      }
+    }
+    file.flush().unwrap();
+    return gen.stats;
+  }
+
   let process = render_prepare(&render, options.input.as_str(), callback);
   let gen = generator_generate(&generator, options.input.as_str(), options.aggressiveness.into(), options.invert, callback);
   render_render(&render, process, options.output.as_str(), gen.cuts, options.quality.into(), callback);
@@ -119,7 +138,7 @@ fn process_files_in_dir(options: Options, generator: Library, render: Library) {
       let tmp = Path::new(&options.output).join(&file.file_name().unwrap()).to_str().unwrap().to_string();
       output_path = tmp;
     } else {
-      let tmp = helper::get_automatic_path(file.to_str().unwrap(), options.invert);
+      let tmp = helper::get_automatic_path(file.to_str().unwrap(), options.invert, options.tsonly);
       output_path = tmp;
     };
 
@@ -130,6 +149,7 @@ fn process_files_in_dir(options: Options, generator: Library, render: Library) {
       quality: options.quality,
       invert: options.invert,
       reencode: reencode.to_string(),
+      tsonly: options.tsonly,
     };
 
     run(&options, &generator, &render);

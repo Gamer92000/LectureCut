@@ -17,6 +17,7 @@ pub struct Options {
   pub aggressiveness: u8,
   pub reencode: String,
   pub invert: bool,
+  pub tsonly: bool,
 }
 
 pub fn parse_args() -> Options {
@@ -27,6 +28,7 @@ pub fn parse_args() -> Options {
     aggressiveness: 1,
     reencode: String::new(),
     invert: false,
+    tsonly: false,
   };
   {
     let mut ap = ArgumentParser::new();
@@ -56,8 +58,11 @@ the output video will have a slightly lower quality than the input video.");
         "Reencode the video with a given video codec.");
     ap.refer(&mut options.invert)
         .add_option(&["--invert"], StoreTrue,
-        "Invert the VAD. This will cut out all segments that are not silence.");
-
+        "Invert the VAD. This will cut out all segments that are not silence.");  
+    ap.refer(&mut options.tsonly)
+        .add_option(&["--tsonly"], StoreTrue,
+        "Only output the timestamps of the cuts. This is useful for debugging purposes or if you want to use the cuts in another program.");
+      
     ap.parse_args_or_exit();
   }
 
@@ -147,7 +152,7 @@ pub fn validate_args(options: Options) -> Options {
   }
   else {
     if !input_is_dir {
-      changed_options.output = get_automatic_path(options.input.as_str(), options.invert);
+      changed_options.output = get_automatic_path(options.input.as_str(), options.invert, options.tsonly);
       if Path::new(changed_options.output.as_str()).exists() {
         raise_error("Output file already exists.")
       }

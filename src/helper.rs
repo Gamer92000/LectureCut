@@ -1,4 +1,4 @@
-pub fn get_automatic_path(file: &str, invert: bool) -> String {
+pub fn get_automatic_path(file: &str, invert: bool, tsonly: bool) -> String {
   let mut automatic_name_insert = "_lecturecut".to_string();
 
   if invert {
@@ -14,7 +14,7 @@ pub fn get_automatic_path(file: &str, invert: bool) -> String {
   let file_name = file_stuff[file_stuff.len() - 1];
   let file_name_stuff = file_name.split(".").collect::<Vec<&str>>();
   let file_name_without_extension = file_name_stuff[0..file_name_stuff.len() - 1].join(".");
-  let file_extension = file_name_stuff[file_name_stuff.len() - 1];
+  let file_extension = if tsonly {"csv"} else {file_name_stuff[file_name_stuff.len() - 1]};
 
   let new_file_name = format!("{}{}.{}", file_name_without_extension, automatic_name_insert, file_extension);
 

@@ -66,44 +66,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Artifacts
-        uses: actions/download-artifact@v2
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/download-artifact@v3
+      - name: Release
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: true
+          files: |
+            ./lecturecutubuntu-latest/lecturecutubuntu-latest.tar.gz
+            ./lecturecutwindows-latest/lecturecutwindows-latest.zip
+          draft: false
           prerelease: false
-      - name: Upload Release Asset (Linux)
-        id: upload-release-asset-linux
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./lecturecutubuntu-latest/lecturecutubuntu-latest.tar.gz
-          asset_name: lecturecutubuntu-latest.tar.gz
-          asset_content_type: application/gzip
-      # - name: Upload Release Asset (Mac)
-      #   id: upload-release-asset-mac
-      #   uses: actions/upload-release-asset@v1
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   with:
-      #     upload_url: ${{ steps.create_release.outputs.upload_url }}
-      #     asset_path: ./lecturecutmacos-latest/lecturecutmacos-latest.tar.gz
-      #     asset_name: lecturecutmacos-latest.tar.gz
-      #     asset_content_type: application/gzip
-      - name: Upload Release Asset (Windows)
-        id: upload-release-asset-windows
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./lecturecutwindows-latest/lecturecutwindows-latest.zip
-          asset_name: lecturecutwindows-latest.zip
-          asset_content_type: application/zip
