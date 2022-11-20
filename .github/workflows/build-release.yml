@@ -23,7 +23,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Setup Cmake
@@ -39,13 +39,13 @@ jobs:
       - name: Collect Artifacts (Linux and Mac)
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: |
-          mkdir -p lecturecut${{ matrix.os }}/modules &&
+          mkdir -p lecturecut${{ matrix.os }} &&
           cp target/release/lecturecut lecturecut${{ matrix.os }} &&
           cp -r modules lecturecut${{ matrix.os }}
       - name: Collect Artifacts (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          mkdir lecturecut${{ matrix.os }}\modules &&
+          mkdir lecturecut${{ matrix.os }} &&
           cp target\release\lecturecut.exe lecturecut${{ matrix.os }} &&
           cp -r modules lecturecut${{ matrix.os }}
       - name: Compress Artifacts (Linux and Mac)
