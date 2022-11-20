@@ -48,12 +48,6 @@ jobs:
           mkdir lecturecut${{ matrix.os }} &&
           cp target\release\lecturecut.exe lecturecut${{ matrix.os }} &&
           cp -r modules lecturecut${{ matrix.os }}
-      - name: Compress Artifacts (Linux and Mac)
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
-        run: tar -czf lecturecut${{ matrix.os }}.tar.gz lecturecut${{ matrix.os }}
-      - name: Compress Artifacts (Windows)
-        if: matrix.os == 'windows-latest'
-        run: 7z a lecturecut${{ matrix.os }}.zip lecturecut${{ matrix.os }}
       - name: Upload Artifacts
         uses: actions/upload-artifact@v3
         with:
@@ -84,19 +78,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./lecturecutubuntu-latest.tar.gz
+          asset_path: ./lecturecutubuntu-latest/lecturecutubuntu-latest.tar.gz
           asset_name: lecturecutubuntu-latest.tar.gz
           asset_content_type: application/gzip
-      - name: Upload Release Asset (Mac)
-        id: upload-release-asset-mac
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./lecturecutmacos-latest.tar.gz
-          asset_name: lecturecutmacos-latest.tar.gz
-          asset_content_type: application/gzip
+      # - name: Upload Release Asset (Mac)
+      #   id: upload-release-asset-mac
+      #   uses: actions/upload-release-asset@v1
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   with:
+      #     upload_url: ${{ steps.create_release.outputs.upload_url }}
+      #     asset_path: ./lecturecutmacos-latest/lecturecutmacos-latest.tar.gz
+      #     asset_name: lecturecutmacos-latest.tar.gz
+      #     asset_content_type: application/gzip
       - name: Upload Release Asset (Windows)
         id: upload-release-asset-windows
         uses: actions/upload-release-asset@v1
@@ -104,6 +98,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./lecturecutwindows-latest.zip
+          asset_path: ./lecturecutwindows-latest/lecturecutwindows-latest.zip
           asset_name: lecturecutwindows-latest.zip
           asset_content_type: application/zip
