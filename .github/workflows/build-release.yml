@@ -48,6 +48,12 @@ jobs:
           mkdir lecturecut${{ matrix.os }} &&
           cp target\release\lecturecut.exe lecturecut${{ matrix.os }} &&
           cp -r modules lecturecut${{ matrix.os }}
+      - name: Compress Artifacts (Linux and Mac)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: tar -czf lecturecut${{ matrix.os }}.tar.gz lecturecut${{ matrix.os }}
+      - name: Compress Artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        run: 7z a lecturecut${{ matrix.os }}.zip lecturecut${{ matrix.os }}
       - name: Upload Artifacts
         uses: actions/upload-artifact@v3
         with:
