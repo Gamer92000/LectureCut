@@ -28,6 +28,9 @@ jobs:
           submodules: recursive
       - name: Setup Cmake
         uses: jwlawson/actions-setup-cmake@v1.13
+      - name: Install OMP (Mac)
+        if: matrix.os == 'macos-latest'
+        run: brew install libomp
       - name: Compile Modules (Linux and Mac)
         if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: cd build_tools && make build
