@@ -7,6 +7,9 @@ use std::ffi::c_double;
 use std::ffi::c_int;
 use std::ffi::c_long;
 use std::ffi::c_void;
+use std::path::Path;
+
+use crate::printer::raise_error;
 
 use self::libloading::Symbol;
 
@@ -22,6 +25,7 @@ pub struct CutList {
   pub cuts: *const Cut,
 }
 
+#[derive(Clone)]
 pub struct GeneratorStats {
   pub len_pre_cut: c_double,
   pub len_post_cut: c_double,
@@ -43,62 +47,87 @@ type GenerateFunc<'a> = Symbol<'a, unsafe extern fn(*const c_char, c_int, bool, 
 // quiet log level
 const FFMPEG_LOG_LVL: &[u8] = b"error\0";
 
-pub unsafe fn load_render() -> Library {
+pub fn load_render() -> Library {
   // load render so from modules/render.so (render.dll)
   let mut lib_path = "modules/librender.so";
   if cfg!(windows) {
     lib_path = "modules/render.dll";
   }
+  if cfg!(target_os = "macos") {
+    lib_path = "modules/librender.dylib";
+  }
+  let binding = std::env::current_exe().unwrap();
+  let binding = binding.parent().unwrap().join(lib_path);
+  lib_path = binding.to_str().unwrap();
   
-  let lib = Library::new(lib_path).unwrap();
+  if !Path::new(lib_path).exists() {
+    raise_error(format!("{} does not exist. Please compile the render module first.", lib_path).as_str());
+  }
+  
+  let lib: Library = unsafe { Library::new(lib_path).unwrap() };
 
-  let init: InitFunc = lib.get(b"init").unwrap();
+  let init: InitFunc = unsafe { lib.get(b"init").unwrap() };
   
-  init(FFMPEG_LOG_LVL.as_ptr() as *const c_char);
+  unsafe {
+    init(FFMPEG_LOG_LVL.as_ptr() as *const c_char);
+  }
   
   lib
 }
 
-pub unsafe fn render_prepare(lib: &Library, input: &str, progress: Callback) -> String {
-  let prepare: PrepareFunc = lib.get(b"prepare").unwrap();
+pub fn render_prepare(lib: &Library, input: &str, progress: Callback) -> String {
+  let prepare: PrepareFunc = unsafe { lib.get(b"prepare").unwrap() };
   let input = CString::new(input).unwrap();
-  let output = prepare(input.as_ptr(), progress);
-  let output = CStr::from_ptr(output).to_str().unwrap();
-  output.to_string()
+  let output = unsafe { prepare(input.as_ptr(), progress) };
+  let output = unsafe { CStr::from_ptr(output) };
+  output.to_str().unwrap().to_string()
 }
 
-pub unsafe fn render_render(lib: &Library, process: String, output: &str, cuts: CutList, reencode: c_int, progress: Callback) {
-  let render: RenderFunc = lib.get(b"render").unwrap();
+pub fn render_render(lib: &Library, process: String, output: &str, cuts: CutList, reencode: c_int, progress: Callback) {
+  let render: RenderFunc = unsafe { lib.get(b"render").unwrap() };
   let input = CString::new(process).unwrap();
   let output = CString::new(output).unwrap();
-  render(input.as_ptr(), output.as_ptr(), cuts, reencode, progress);
+  unsafe { render(input.as_ptr(), output.as_ptr(), cuts, reencode, progress) };
 }
 
-pub unsafe fn load_generator() -> Library {
+pub fn load_generator() -> Library {
   // load generator so from modules/generator.so (generator.dll)
+  
   let mut lib_path = "modules/libgenerator.so";
   if cfg!(windows) {
     lib_path = "modules/generator.dll";
   }
-  
-  let lib = Library::new(lib_path).unwrap();
-  
-  let init: InitFunc = lib.get(b"init").unwrap();
+  if cfg!(target_os = "macos") {
+    lib_path = "modules/libgenerator.dylib";
+  }
+  let binding = std::env::current_exe().unwrap();
+  let binding = binding.parent().unwrap().join(lib_path);
+  lib_path = binding.to_str().unwrap();
 
-  init(FFMPEG_LOG_LVL.as_ptr() as *const c_char);
+  if !Path::new(lib_path).exists() {
+    raise_error(format!("{} does not exist. Please compile the generator module first.", lib_path).as_str());
+  }
+  
+  let lib = unsafe { Library::new(lib_path).unwrap() };
+  
+  let init: InitFunc = unsafe { lib.get(b"init").unwrap() };
+
+  unsafe {
+    init(FFMPEG_LOG_LVL.as_ptr() as *const c_char);
+  }
 
   lib
 }
 
-pub unsafe fn generator_generate(lib: &Library, input: &str, aggressiveness: c_int, invert: bool, progress: Callback) -> GeneratorResult {
-  let generate: GenerateFunc = lib.get(b"generate").unwrap();
+pub fn generator_generate(lib: &Library, input: &str, aggressiveness: c_int, invert: bool, progress: Callback) -> GeneratorResult {
+  let generate: GenerateFunc = unsafe { lib.get(b"generate").unwrap() };
   let input = CString::new(input).unwrap();
-  generate(input.as_ptr(), aggressiveness, invert, progress)
+  unsafe { generate(input.as_ptr(), aggressiveness, invert, progress) }
 }
 
-pub unsafe fn module_version(lib: &Library) -> String {
-  let version: VersionFunc = lib.get(b"version").unwrap();
-  let version = version();
-  let version = CStr::from_ptr(version).to_str().unwrap();
-  version.to_string()
+pub fn module_version(lib: &Library) -> String {
+  let version: VersionFunc = unsafe { lib.get(b"version").unwrap() };
+  let version = unsafe { version() };
+  let version = unsafe { CStr::from_ptr(version) };
+  version.to_str().unwrap().to_string()
 }

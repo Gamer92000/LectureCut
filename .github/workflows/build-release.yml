@@ -1,0 +1,107 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# GitHub recommends pinning actions to a commit SHA.
+# To get a newer version, you will need to update the SHA.
+# You can also reference a tag or branch, but the action may change without warning.
+
+name: Build and Push GHCR
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Setup Cmake
+        uses: jwlawson/actions-setup-cmake@v1.13
+      - name: Compile Modules (Linux and Mac)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: cd build_tools && make build
+      - name: Compile Modules (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cd build_tools && .\build.bat build
+      - name: Compile LectureCut
+        run: cargo build --release
+      - name: Collect Artifacts (Linux and Mac)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: |
+          mkdir -p lecturecut${{ matrix.os }}/modules &&
+          cp target/release/lecturecut lecturecut${{ matrix.os }} &&
+          cp -r modules lecturecut${{ matrix.os }}
+      - name: Collect Artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir lecturecut${{ matrix.os }}\modules &&
+          cp target\release\lecturecut.exe lecturecut${{ matrix.os }} &&
+          cp -r modules lecturecut${{ matrix.os }}
+      - name: Compress Artifacts (Linux and Mac)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+        run: tar -czf lecturecut${{ matrix.os }}.tar.gz lecturecut${{ matrix.os }}
+      - name: Compress Artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        run: 7z a lecturecut${{ matrix.os }}.zip lecturecut${{ matrix.os }}
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: lecturecut${{ matrix.os }}
+          path: |
+              lecturecut${{ matrix.os }}.tar.gz
+              lecturecut${{ matrix.os }}.zip
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v2
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: true
+          prerelease: false
+      - name: Upload Release Asset (Linux)
+        id: upload-release-asset-linux
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./lecturecutubuntu-latest.tar.gz
+          asset_name: lecturecutubuntu-latest.tar.gz
+          asset_content_type: application/gzip
+      - name: Upload Release Asset (Mac)
+        id: upload-release-asset-mac
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./lecturecutmacos-latest.tar.gz
+          asset_name: lecturecutmacos-latest.tar.gz
+          asset_content_type: application/gzip
+      - name: Upload Release Asset (Windows)
+        id: upload-release-asset-windows
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./lecturecutwindows-latest.zip
+          asset_name: lecturecutwindows-latest.zip
+          asset_content_type: application/zip

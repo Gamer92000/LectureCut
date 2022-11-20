@@ -68,10 +68,14 @@ void internal_prepare(
   // SEGMENTATION
   // ============
 
-  std::string command = "ffmpeg -i \"" + std::string(file) + "\" -c copy -f segment -reset_timestamps 1 -loglevel " + log_level + " -hide_banner -nostdin \"" + (segment_path / "out%05d.ts").string() + "\"";
+  std::string command = "ffmpeg -i \"" + std::string(file) + "\" -c copy -f segment -reset_timestamps 1 -loglevel " + log_level + " -hide_banner -nostdin -progress pipe:1 \"" + (segment_path / "out%05d.ts").string() + "\"";
+
+  const double duration = get_video_length(file, log_level);
 
   // execute the command
-  exec(command.c_str());
+  read_ffmpeg_progress(command, duration, [&progress](double p){
+    progress("Segmenting", p);
+  });
   
   // get a list of all directory_entries (segments)
   std::vector<std::filesystem::directory_entry> segments = get_dir_sorted(segment_path);
@@ -91,16 +95,7 @@ void internal_prepare(
   {
     auto &entry = segments[i];
     // get frame count
-    std::string command = "ffprobe -v " + log_level + " -count_packets -select_streams v:0 -show_entries stream=nb_read_packets -of csv=p=0 \"" + entry.path().string() + "\"";
-    const int packets = std::stoi(exec(command.c_str()));
-    // get frame rate
-    command = "ffprobe -v " + log_level + " -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 \"" + entry.path().string() + "\"";
-    const std::string frame_rate_string = exec(command.c_str()); // has the form "30/1"
-    const int frame_rate_numerator = std::stoi(frame_rate_string.substr(0, frame_rate_string.find('/')));
-    const int frame_rate_denominator = std::stoi(frame_rate_string.substr(frame_rate_string.find('/') + 1));
-    const double frame_rate = (double)frame_rate_numerator / (double)frame_rate_denominator;
-    // calculate duration
-    const double duration = packets / frame_rate;
+    const double duration = get_video_length(entry.path(), log_level);
     // add to segment_length
     segment_length[i] = duration;
     progress("Analysing", progress_delta);
@@ -197,7 +192,7 @@ void render(
   // TRANSCODING
   // ===========
 
-  #pragma omp parallel for num_threads(omp_get_num_procs() / 4)
+  #pragma omp parallel for num_threads(omp_get_num_procs() / 8)
   for (int i = 0; i < segments.size(); i++)
   {
     auto &entry = segments[i];
@@ -298,10 +293,18 @@ void render(
   }
   concat_file.close();
 
-  // concatenate all segments in the cut folder
-  std::string command = "ffmpeg -f concat -safe 0 -i " + (cache_path / "concat.txt").string() + " -c copy \"" + output + "\" -loglevel " + log_level + " -hide_banner -nostdin";
+  // calculate expected duration of output file
+  double expected_duration = 0;
+  for (int j = 0; j < cuts.num_cuts; j++) {
+    expected_duration += cuts.cuts[j].end - cuts.cuts[j].start;
+  }
 
-  exec(command.c_str());
+  // concatenate all segments in the cut folder
+  std::string command = "ffmpeg -f concat -safe 0 -i " + (cache_path / "concat.txt").string() + " -c copy \"" + output + "\" -loglevel " + log_level + " -hide_banner -nostdin -progress pipe:1";
+
+  read_ffmpeg_progress(command, expected_duration, [&progress](double p){
+    progress("Joining", p);
+  });
 
   // =======
   // CLEANUP

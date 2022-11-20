@@ -18,7 +18,11 @@ pub fn get_automatic_path(file: &str, invert: bool) -> String {
 
   let new_file_name = format!("{}{}.{}", file_name_without_extension, automatic_name_insert, file_extension);
 
-  let file = format!("{}/{}", file_path, new_file_name);
+  let file = if file_path != "" {
+    format!("{}/{}", file_path, new_file_name)
+  } else {
+    new_file_name
+  };
 
   if cfg!(windows) {
     file.replace("/", "\\")

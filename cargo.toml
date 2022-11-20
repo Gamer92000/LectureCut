@@ -5,5 +5,10 @@ version = "0.1.0"
 [dependencies]
 argparse = "0.2.2"
 console = "0.15.2"
+indicatif = "0.17.1"
 libloading = "0.7.3"
 tree_magic = "0.2.3"
+
+[dependencies.tabled]
+version = "0.10.0"
+features = ["color"]

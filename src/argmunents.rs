@@ -3,6 +3,8 @@ extern crate tree_magic;
 
 use std::path::Path;
 
+use self::argparse::StoreTrue;
+
 use self::argparse::{ArgumentParser, Store};
 
 use crate::{printer::{raise_error, print_dir_not_empty_warning, print_reencode_missing_check_warning}, helper::get_automatic_path};
@@ -49,6 +51,12 @@ the output video will have a slightly lower quality than the input video.");
     ap.refer(&mut options.aggressiveness)
         .add_option(&["-a", "--aggressiveness"], Store,
         "The aggressiveness of the VAD. Higher is more aggressive. Default: 3");
+    ap.refer(&mut options.reencode)
+        .add_option(&["-r", "--reencode"], Store,
+        "Reencode the video with a given video codec.");
+    ap.refer(&mut options.invert)
+        .add_option(&["--invert"], StoreTrue,
+        "Invert the VAD. This will cut out all segments that are not silence.");
 
     ap.parse_args_or_exit();
   }
@@ -90,13 +98,17 @@ pub fn validate_args(options: Options) -> Options {
     }
   }
 
+  if cfg!(windows) {
+    changed_options.input = options.input.replace("/", "\\");
+  }
+
   // output validation
   if options.output != "" {
     // may not contain any illegal characters for paths
     // if is windows
     let mut illegal_chars: String = "".to_string();
     if cfg!(windows) {
-      illegal_chars += r#"<>:"|?*"#;
+      illegal_chars += r#"<>"|?*"#;
       for i in 0..32 {
         illegal_chars += i.to_string().as_str();
       }
