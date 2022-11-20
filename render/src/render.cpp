@@ -14,7 +14,11 @@
 #include <thread>
 #include <cstring>
 #include <fstream>
+#ifndef __APPLE__
 #include <omp.h>
+#else
+#include "/usr/local/opt/libomp/include/omp.h"
+#endif
 #include <system_error>
 #include <cassert>
 
