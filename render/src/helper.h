@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 std::string exec(const char* cmd) {
     std::array<char, 128> buffer;

@@ -17,14 +17,13 @@ foreach(CompilerFlag ${CompilerFlags})
 endforeach()
 
 find_package(Threads REQUIRED)
+find_package(OpenMP)
 
 set (sources src/render.cpp)
 
 add_library (${PROJECT_NAME} SHARED ${sources})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
-
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(${PROJECT_NAME} PUBLIC OpenMP::OpenMP_CXX)
-endif()
+target_link_libraries(${PROJECT_NAME} 
+    PRIVATE
+    Threads::Threads
+    OpenMP::OpenMP_CXX)

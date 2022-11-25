@@ -27,5 +27,6 @@ set (sources src/generator.cpp)
 add_library (${PROJECT_NAME} SHARED ${sources})
 
 target_link_libraries(${PROJECT_NAME}
+        PRIVATE
         fvad
         OpenMP::OpenMP_CXX)
