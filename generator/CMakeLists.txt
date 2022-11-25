@@ -17,6 +17,7 @@ foreach(CompilerFlag ${CompilerFlags})
 endforeach()
 
 find_package(Threads REQUIRED)
+find_package(OpenMP REQUIRED)
 
 include_directories(3rdparty/libfvad/include)
 add_subdirectory(3rdparty/libfvad)
@@ -25,9 +26,6 @@ set (sources src/generator.cpp)
 
 add_library (${PROJECT_NAME} SHARED ${sources})
 
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(${PROJECT_NAME} OpenMP::OpenMP_CXX)
-endif()
-
-target_link_libraries(${PROJECT_NAME} fvad)
+target_link_libraries(${PROJECT_NAME}
+        fvad
+        OpenMP::OpenMP_CXX)
