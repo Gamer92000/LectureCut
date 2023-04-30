@@ -36,6 +36,7 @@ PROCESSES = N_CORES // 4
 CACHE_PREFIX = "./" # needs to end with a slash 
 
 instances = {}
+ts_only = None
 
 def init_cache(instance):
   """
@@ -140,6 +141,21 @@ def _analyse_segments(progress, instance):
     }
     total_duration += duration
 
+def write_ts(filename, instance):
+  """
+  Write the segments as ts files.
+
+  progress -- the manager for the progress bars
+  instance -- the instance id
+  """
+  cuts = vad.run(instances[instance]["file"],aggressiveness)
+  
+  with open(instances[instance]["output"].replace(".mp4",".csv"), "w") as f:
+    for cut in cuts:
+      f.write(f"{cut[0]},{cut[1]},\n")
+      
+  
+  
 
 def transcode(progress, instance):
   """
@@ -149,6 +165,7 @@ def transcode(progress, instance):
   instance -- the instance id
   """
   global instances
+  input("Press enter to start transcoding")
 
   cache_path = CACHE_PREFIX + f"/{instance}/"
   segments = instances[instance]["segments"]
@@ -315,14 +332,16 @@ def run(progress, config):
   }
   for key in config:
     instances[instance][key] = config[key]
-
-  init_cache(instance)
-  Parallel(n_jobs=2, require="sharedmem")([
-      delayed(generate_cut_list)(instance),
-      delayed(prepare_video)(progress, instance)])
-  transcode(progress, instance)
-  concat_segments(progress, instance)
-  cleanup(instance)
+  if ts_only!=None:
+        write_ts(progress, instance)
+  else:
+        init_cache(instance)
+        Parallel(n_jobs=2, require="sharedmem")([
+            delayed(generate_cut_list)(instance),
+            delayed(prepare_video)(progress, instance)])
+        transcode(progress, instance)
+        concat_segments(progress, instance)
+        cleanup(instance)
 
 
 invert = False
@@ -334,7 +353,7 @@ def parse_args():
   """
   Parse the command line arguments.
   """
-  global invert, quality, aggressiveness, reencode
+  global invert, quality, aggressiveness, reencode, ts_only
   parser = argparse.ArgumentParser(description=textwrap.dedent("""
     LectureCut is a tool to remove silence from videos.
 
@@ -378,6 +397,13 @@ def parse_args():
           " This will cut out all segments that are not silence.",
       required=False,
       action="store_true")
+  parser.add_argument(
+      "-tso", "--tsonly",
+      help="only output a csv with the cut timestamps."+\
+          "This will only output a csv with the cut timestamps.",
+      required=False,
+      action="store_true",
+      default="timestamps.csv")
 
   args = parser.parse_args()
 
@@ -389,6 +415,8 @@ def parse_args():
     aggressiveness = args.aggressiveness
   if args.reencode:
     reencode = args.reencode
+  if args.tsonly:
+      ts_only = args.tsonly
 
   if args.invert and not args.aggressiveness:
     aggressiveness = 1
@@ -502,7 +530,8 @@ def main():
       })
       end = time.perf_counter()
 
-    print_stats([(args.input, args.output)], end - start)
+    if not ts_only:
+          print_stats([(args.input, args.output)], end - start)
 
 def shotdown_cleanup():
   """
