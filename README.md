@@ -11,7 +11,7 @@
 
 ## 📝 Description
 
-LectureCut is a video editor for lectures. It allows you to automatically cut out parts of a video that are have no voice in it. This can cut down the time you need to watch a lecture by a lot.
+LectureCut is a video editor for lectures. It allows you to automatically cut out parts of a video that have no voice in it. This can cut down the time you need to watch a lecture by a lot.
 LectureCut uses WebRTC to detect voice in a video. It then uses ffmpeg to cut out the parts of the video that have no voice in it. Using some advanced smart encoding techniques, LectureCut can cut down the time it takes to process a video by a lot.
 
 
